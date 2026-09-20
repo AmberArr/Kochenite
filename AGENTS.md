@@ -1,0 +1,50 @@
+# Working Instructions
+
+## Plans and Session Workflow
+
+- The intended master plan is `.agents/plans/PLAN.md`, with detailed plans in `.agents/plans/phases/01-foundation.md`, `02-manual-bookkeeping.md`, and so on.
+- At the start of each session, read the master plan and current phase plan, inspect the code and Git status, and continue from recorded progress.
+- Keep product scope, shared architecture, cross-phase decisions, dependencies, and phase status in the master plan. Link to the detailed phase plans.
+- At the start of a phase, create or refine its detailed plan based on the actual code. Include deliverables, implementation steps, data/API changes, tests, and explicit exit criteria. Do not duplicate shared architectural rules.
+- Resolve routine engineering choices independently. Ask about unresolved product choices or material changes to agreed scope or architecture. Routine phase planning does not require a separate approval step before authorized implementation.
+- Implement in verifiable increments. Complete the current phase's exit criteria before starting the next authorized phase.
+- Before ending a session, record completed work, verification results, known limitations, blockers, and the next concrete action in the phase plan. Update the master plan for phase status and cross-phase decisions.
+- Follow the user's latest instructions when they supersede a plan, and update affected plans to reflect the decision.
+
+## Build and Tooling
+
+- Use native Kotlin and Jetpack Compose with Kotlin Toolchain. Prefer the checked-in `./kotlin` wrapper once it exists; the initial planned Toolchain version is 0.12.2.
+- Run build commands from the workspace root using the tools' default cache settings. Before the wrapper exists, use installed `kotlin`.
+- If sandbox permissions or default tool/cache paths block a command, report the exact error and affected path, then ask the user to adjust the configuration or authorize the required access. Do not introduce cache redirection or environment workarounds on your own.
+- Keep caches and generated build output out of Git.
+- Verify relevant tool and library support instead of assuming Gradle-specific integrations work with Kotlin Toolchain.
+
+## Android Devices
+
+- Always pass `--no-metrics` to Android CLI commands, for example `android --no-metrics --version`, to disable telemetry and avoid writes to the analytics spool.
+- This machine does not support KVM. Never create or launch an Android emulator; use the remote physical phone over ADB.
+- Rediscover connected devices using `adb devices -l`. Select the intended device explicitly with `adb -s "$ANDROID_SERIAL"`; do not hardcode an old wireless serial or choose arbitrarily among multiple devices.
+- Use ADB reverse forwarding for local recognition-service access. Permit localhost cleartext traffic only in debug builds.
+- Preserve Bluecoins records and all other apps on the phone. Reference inspection must not save changes, clear data, or uninstall apps.
+- Use synthetic records and a separate debug application identity for destructive tests. Do not clear the user's bookkeeping data to solve a development problem.
+- Distinguish host/rendering checks from real-device validation. Report disconnected-device or coverage limitations honestly.
+
+## Finance and Recognition
+
+- Keep bookkeeping local and usable offline without sign-in. Cloud recognition must not become a prerequisite for manual entry.
+- Use integer minor units for finalized monetary amounts and decimal arithmetic for rates, quantities, and intermediate calculations. Never use floating-point money.
+- Preserve original currencies and historical conversion snapshots. Account postings determine balances; category allocations determine spending. Do not double-count receipt lines, transfers, or credit-card repayments.
+- Save financial aggregates atomically and verify reconciliation invariants. Do not silently invent amounts to balance an extracted receipt.
+- All receipt and notification extraction produces reviewable drafts. Only explicit user confirmation posts financial transactions.
+- The supplied recognition demo is in `receipt-ai-demo/a.js` and `receipt-ai-demo/prompt.txt`. Treat it as a provider-integration reference, not a validated contract. Consult it when planning recognition work; do not assume the demo is still pending.
+- Keep deterministic fixture recognition for development and tests. Separate provider calls from schema validation, financial reconciliation, and ledger posting.
+- Keep provider credentials on the gateway, never in the APK. Exclude secrets, private receipts, notification bodies, and financial records from commits and routine logs. Use synthetic or deliberately selected test inputs for external recognition calls.
+
+## Verification and Git
+
+- Inspect existing code and use its established patterns. Preserve user files and unrelated changes, including local skills and demo files; do not stage them incidentally.
+- Run checks appropriate to the change. Prioritize meaningful tests for financial invariants, migrations, recovery, extraction failures, and device workflows. Documentation-only changes do not require app builds.
+- Do not mark a phase complete until its exit criteria have evidence. Record checks that could not run and the reason.
+- Make focused Git commits after verified milestones, including relevant plan updates. Inspect the staged diff and run `git diff --cached --check` before committing.
+- Stage explicit paths. Keep the user's `master` branch unless instructed otherwise. Do not push, rewrite history, revert unrelated work, or commit secrets without authorization.
+- Git metadata may be read-only inside the sandbox even when source files are writable. If necessary, use the supported approval mechanism for authorized Git writes; do not delete or recreate `.git` as a workaround.
