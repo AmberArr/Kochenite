@@ -3,12 +3,13 @@
 ## Plans and Session Workflow
 
 - The intended master plan is `.agents/plans/PLAN.md`, with detailed plans in `.agents/plans/phases/01-foundation.md`, `02-manual-bookkeeping.md`, and so on.
-- At the start of each session, read the master plan and current phase plan, inspect the code and Git status, and continue from recorded progress.
+- Keep per-phase worklogs in `.agents/worklogs/01-foundation.md`, `02-manual-bookkeeping.md`, and so on, linked from their phase plans. Plans describe intended work and current decisions; worklogs record what happened.
+- At the start of each session, read the master plan, current phase plan and latest entries in its worklog, inspect the code and Git status, and continue from recorded progress.
 - Keep product scope, shared architecture, cross-phase decisions, dependencies, and phase status in the master plan. Link to the detailed phase plans.
 - At the start of a phase, create or refine its detailed plan based on the actual code. Include deliverables, implementation steps, data/API changes, tests, and explicit exit criteria. Do not duplicate shared architectural rules.
 - Resolve routine engineering choices independently. Ask about unresolved product choices or material changes to agreed scope or architecture. Routine phase planning does not require a separate approval step before authorized implementation.
 - Implement in verifiable increments. Complete the current phase's exit criteria before starting the next authorized phase.
-- Before ending a session, record completed work, verification results, known limitations, blockers, and the next concrete action in the phase plan. Update the master plan for phase status and cross-phase decisions.
+- Before ending a session, append a dated worklog entry with completed work, commands/results, verification gaps and encountered blockers. Keep only current status, unresolved limitations/blockers, exit-criterion completion and the next concrete action in the phase plan, linking to worklog evidence. Do not accumulate session narratives or resolved failures in plans. Update the master plan only for phase status and cross-phase decisions.
 - Follow the user's latest instructions when they supersede a plan, and update affected plans to reflect the decision.
 
 ## Build and Tooling

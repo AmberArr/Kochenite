@@ -24,21 +24,32 @@ Agreed choices:
 
 ## Environment and Working Conventions
 
-Workspace: `/home/amber/codex_workspace/kochenite-v2`.
+Workspace: `/home/amber/codex_workspace/kochenite-v2`. Preserve user-provided
+skills, local configuration and the supplied recognition demo. Keep `master`.
 
-The project started without application code. The user initialized Git and configured `init.defaultBranch` to `master`. Existing `.agents/` skills are user-provided resources; do not commit or modify them incidentally.
+Build from the workspace root with the pinned `./gradlew` wrapper and default
+caches. Request required access for blocked paths; do not redirect caches or
+repurpose environment variables. Current versions and commands are maintained
+in the [build guide](../../docs/gradle-build.md). Generated outputs, signing
+secrets and device evidence stay ignored.
 
-This machine does not support KVM. Do not create or launch an Android emulator. Build on the host and deploy, inspect, and test on a remote physical phone using ADB.
+Use physical-device testing; this host cannot run KVM emulators. The reference
+phone is a OnePlus 6T (ONEPLUS_A6013), Android 15/API 35, with 4 KB pages.
+Rediscover its serial with `adb devices -l` and select it explicitly for each
+session. Preserve other apps and their data. Pass `--no-metrics` to Android CLI.
+Other OS and page-size runtime coverage remains unverified.
 
-At planning time, wireless ADB connected to a OnePlus 6T (`ONEPLUS_A6013`) running Android 15 / API 35. Its observed serial was `adb-a2480128-JKi84V._adb-tls-connect._tcp`; rediscover the current serial with `adb devices -l` in each session and select it explicitly. Do not assume the serial remains stable. Never clear or uninstall the user's Bluecoins app or change its records during reference inspection.
+Use Spotless + ktlint for Kotlin/Gradle formatting and `./gradlew verify` for
+formatting, Android Lint, JVM and host script checks. Device tests stay explicit.
+The versioned pre-commit hook checks without changing files or the index; it
+rejects partial staging of relevant files. Formatting excludes generated output,
+secrets, user skills and supplied demo code.
 
-Use the checked-in Gradle 9.5.0 wrapper and Kotlin DSL build from the workspace root with default tool caches. AGP 9.3.1, Kotlin 2.4.10, KSP2 2.3.11 and JDK 21 are verified together. If permissions block a tool/cache path, report the exact error and request required access; do not redirect caches or repurpose environment variables. Keep generated outputs and caches ignored. The prior Toolchain build is preserved in commit `368ce38`.
-
-The user selected Spotless + ktlint for Kotlin/Gradle formatting. Pin Spotless 8.10.2 and ktlint 1.8.0; use official ktlint defaults with the documented Compose naming exception. `./gradlew verify` combines formatting, Android Lint, JVM and host script tests; device checks remain explicit. A versioned, check-only pre-commit hook checks staged whitespace and formatting, refusing ambiguous partial staging without changing files or the index. Exclude generated output, secrets, local skills and supplied demo code from formatting.
-
-Toolchain 0.12.2 built and installed the Compose, Room/KSP2/SQLCipher and signed/shrunk release probes. The [capability matrix](../../docs/toolchain-proof.md) records commands, integration costs and limits. The user explicitly approved migration to Gradle on September 22, 2026 (local date). Use the pinned Gradle wrapper, standard Android variants and instrumentation for remaining Phase 1 work.
-
-Android CLI 1.0.16261425 and ADB work. Always pass `--no-metrics`. API 36 revision 2 and command-line tools 22.0 are installed; builds use tools 37.0.0 and pinned JDK 21. The user removed conflicting `ANDROID_SDK_HOME` and retained `ANDROID_USER_HOME`; no cache redirection was applied.
+Plans describe intended work, accepted decisions and current status. Keep dated
+implementation notes, commands/results and resolved blockers in per-phase
+[worklogs](../worklogs/01-foundation.md), linked from the corresponding plan.
+The [Toolchain capability matrix](../../docs/toolchain-proof.md) preserves the
+build-system assessment that led to the Gradle decision.
 
 ## Reference and Product Scope
 
@@ -153,16 +164,19 @@ Phase 1 is verified. Complete and verify each phase before moving on; commit coh
 
 ### Phase 1: Foundation and Toolchain Proof
 
-Status: complete. Plain Room storage, integrated UI, six JVM/four runner-parser/eleven device tests, repeat clean builds and permanent-key release 1-to-2 upgrade pass. See [Gradle commands](../../docs/gradle-build.md) and the [Phase 1 plan](phases/01-foundation.md) for evidence and coverage limits. Spoken TalkBack and 16 KB runtime remain unverified; off-machine signing backup is required before real use.
+Status: complete for synthetic data. See the [Phase 1 plan](phases/01-foundation.md)
+for deliverables, exit criteria and current limitations; the
+[worklog](../worklogs/01-foundation.md#final-foundation-evidence) contains verification
+results. Off-machine signing backup remains required before real use.
 
-- Initialize an isolated pinned Kotlin Toolchain 0.12.2 Compose proof with default caches and appropriate generated-output/secret ignores. Stop at four active hours or earlier decisive evidence and obtain the user's build-system choice.
-- Finish Compose integration, Room generation and plain SQLite migrations, and deployment to the remote physical phone. Remove SQLCipher and database-key code/dependencies from the active foundation.
-- Prove release APK creation/signing and upgrade continuity; keep signing credentials and keys outside Git. Check packaging compatibility for any native libraries still shipped, including modern page-size requirements.
-- Establish JVM tests and a repeatable physical-device journey runner. Verify Android instrumentation support early. If substantial unsupported build integration is required, explain the blocker to the user before considering a Gradle switch.
-- Document build, test, explicit device selection, installation, log collection, screenshots, and local-service tunneling. Do not create an emulator.
-- IDs: release `moe.frost.kochenite`, debug `moe.frost.kochenite.debug`; disposable `foundation-proof.db` stays separate from Phase 2 finance schema. Durable signing key is created only after the build decision, under ignored `.local/signing`.
-- The historical proof used encrypted `toolchain-probe.db` and temporary release ID `moe.frost.kochenite.debug.releaseproof`. Its SQLCipher results remain historical evidence, not a dependency or acceptance requirement for the selected plain Room foundation. Preserve the permanent identity for its durable signing key.
-- Exit: all detailed Phase 1 criteria have evidence, including plain Room persistence/restart/atomicity/migration, non-destructive failure handling, signed release upgrade, repeatable device tests and applicable static native checks. API 35/4 KB phone coverage does not establish other OS or 16 KB runtime support.
+- Selected build: Gradle following the bounded Kotlin Toolchain proof.
+- Deliver the Compose foundation, plain Room persistence and migrations,
+  non-destructive failure handling, repeatable tests and signed release upgrades.
+- IDs: release `moe.frost.kochenite`, debug `moe.frost.kochenite.debug`.
+  Keep `foundation-proof.db` separate from the Phase 2 financial schema.
+- Exit: the detailed phase criteria have evidence, including physical-device
+  instrumentation, repeat clean builds, signing continuity and native packaging.
+  API 35/4 KB coverage does not establish other OS or 16 KB runtime support.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
@@ -220,4 +234,4 @@ The initial product is a personal sideloaded Android app with one local book con
 
 ## New-Session Handoff
 
-Read this file and the completed Phase 1 plan. The plain Room foundation is verified and release version 2 is installed on the reference phone. Phase 2 has not started; when authorized, write its detailed plan and begin with the separate financial schema/posting invariants. Reuse the build, storage-failure handling, instrumentation and signing workflow. Keep the sample database separate. Restore the existing signing identity when needed; never regenerate it. Off-machine encrypted signing backup needs a user-controlled destination and recovery check before real bookkeeping use. Recognition fixtures and provider-contract design remain Phase 3 work.
+Read this file, the completed Phase 1 plan and the latest entries in its worklog. The plain Room foundation is complete. Phase 2 has not started; when authorized, write its detailed plan and begin with the separate financial schema/posting invariants. Reuse the build, storage-failure handling, instrumentation and signing workflow. Keep the sample database separate. Restore the existing signing identity when needed; never regenerate it. Off-machine encrypted signing backup needs a user-controlled destination and recovery check before real bookkeeping use. Recognition fixtures and provider-contract design remain Phase 3 work.

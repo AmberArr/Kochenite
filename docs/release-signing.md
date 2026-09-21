@@ -39,7 +39,7 @@ This does not block synthetic foundation testing.
    public fingerprint, and remove the temporary plaintext copy after testing.
    Record backup date, destination description and successful recovery check in
    a private inventory, not in repository logs. Record only completion status
-   in the phase plan.
+   in the current phase worklog and update the plan's remaining prerequisite.
 
 ## Recovery
 
