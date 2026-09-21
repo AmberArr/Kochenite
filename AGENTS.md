@@ -18,6 +18,8 @@
 - If sandbox permissions or default tool/cache paths block a command, report the exact error and affected path, then ask the user to adjust the configuration or authorize the required access. Do not introduce cache redirection or environment workarounds on your own.
 - Keep caches and generated build output out of Git.
 - Use standard Android variants and `androidTest` instrumentation. Keep the domain independent of Android; future iOS/Multiplatform targets remain deferred.
+- Use pinned Spotless/ktlint for Kotlin and Gradle Kotlin DSL: `./gradlew spotlessApply` formats, `./gradlew spotlessCheck` checks, and `./gradlew verify` runs formatting, Android lint, JVM tests and host script tests. Device tests remain explicit.
+- The check-only hook in `.githooks` checks staged whitespace and runs Spotless for Kotlin/build/config changes. It refuses unstaged changes in those files rather than modifying the index. Enable it per checkout with `git config --local core.hooksPath .githooks`; preserve any existing hook configuration.
 
 ## Android Devices
 

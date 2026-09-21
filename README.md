@@ -11,6 +11,9 @@ not an app ready for financial records.
 - [Phase 1 plan and verification status](.agents/plans/phases/01-foundation.md)
 
 Use the pinned `./gradlew` wrapper from the repository root with default caches.
+Run `./gradlew spotlessApply` to format Kotlin and `./gradlew verify` for host
+checks. Enable the check-only hook with `git config --local core.hooksPath .githooks`
+after checking for existing custom hooks; details are in the build guide.
 Only physical-device testing is permitted on this host. No recognition service
 or financial ledger is implemented yet.
 

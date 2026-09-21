@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+git diff --cached --check
+
+# Keep these paths aligned with the root Spotless targets.
+set -- ':(top,glob)*.gradle.kts' \
+    'app/src/**/*.kt' 'domain/src/**/*.kt' \
+    'persistence/src/**/*.kt' 'recognition-contract/src/**/*.kt' \
+    'app/build.gradle.kts' 'domain/build.gradle.kts' \
+    'persistence/build.gradle.kts' 'recognition-contract/build.gradle.kts' \
+    '.editorconfig' 'gradle.properties' 'gradlew' 'gradlew.bat' 'gradle/wrapper'
+
+if git diff --cached --quiet -- "$@"; then
+    exit 0
+fi
+
+# Spotless reads the worktree. Refuse ambiguous staged/unstaged source mixtures.
+if ! git diff --quiet -- "$@"; then
+    printf '%s\n' 'Formatting check requires Kotlin/build/config files to match the index.' \
+        'Resolve unstaged changes in those files, then retry. Nothing was rewritten or staged.' >&2
+    exit 1
+fi
+
+exec ./gradlew --console=plain spotlessCheck

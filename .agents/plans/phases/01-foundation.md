@@ -270,3 +270,31 @@ signing identity and release upgrade checks. Keep `foundation-proof.db` disposab
 and separate; do not treat samples as financial transactions. Then implement
 setup/accounts/categories/manual entry/transfers and encrypted backup/restore.
 Recognition fixtures/provider contracts remain Phase 3 work.
+
+## Post-Foundation Tooling
+
+The user selected Spotless + ktlint after Phase 1, before starting Phase 2.
+Pinned Spotless 8.10.2 and ktlint 1.8.0 through the existing wrapper; no global
+ktlint installation is needed. Root configuration targets only project Kotlin
+sources and Gradle Kotlin DSL. `.editorconfig` uses official ktlint rules with
+the documented naming exception for `@Composable` functions. Wildcard imports
+were expanded; existing sources are being normalized in a separate style commit.
+
+Added `verify` for Spotless, app/persistence Android Lint, six JVM tests,
+recognition-boundary checks and host script tests. The versioned pre-commit hook
+is check-only: staged whitespace for every commit, full formatting check for
+Kotlin/build/config changes, and refusal of unstaged changes in those tracked
+files. No auto-staging, rewriting or stashing. Six temporary-repository hook tests
+verify skipping docs-only commits, triggering for module sources, preserving the
+index and unrelated edits, and rejecting partial staging/whitespace/formatter
+failures. These pass, alongside the four existing runner-parser tests.
+
+Formatter setup exposed stale generated lint diagnostics after an EditorConfig
+change; restarting the idle daemon and clearing root formatter outputs resolved
+them. One throw-only callback needed its equivalent explicit Unit expression to
+normalize cleanly. `spotlessApply`, `spotlessCheck`, full `verify` and compilation
+of both instrumentation source sets pass. A second formatter pass leaves the diff
+unchanged. Lint remains at zero errors (eleven app and six persistence warnings).
+The tooling setup and source normalization are separate commits; local hook
+activation follows staging the formatting baseline. Device tests were not rerun
+for these formatting/import-only changes. Phase 2 has not started.

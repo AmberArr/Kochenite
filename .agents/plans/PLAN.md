@@ -34,6 +34,8 @@ At planning time, wireless ADB connected to a OnePlus 6T (`ONEPLUS_A6013`) runni
 
 Use the checked-in Gradle 9.5.0 wrapper and Kotlin DSL build from the workspace root with default tool caches. AGP 9.3.1, Kotlin 2.4.10, KSP2 2.3.11 and JDK 21 are verified together. If permissions block a tool/cache path, report the exact error and request required access; do not redirect caches or repurpose environment variables. Keep generated outputs and caches ignored. The prior Toolchain build is preserved in commit `368ce38`.
 
+The user selected Spotless + ktlint for Kotlin/Gradle formatting. Pin Spotless 8.10.2 and ktlint 1.8.0; use official ktlint defaults with the documented Compose naming exception. `./gradlew verify` combines formatting, Android Lint, JVM and host script tests; device checks remain explicit. A versioned, check-only pre-commit hook checks staged whitespace and formatting, refusing ambiguous partial staging without changing files or the index. Exclude generated output, secrets, local skills and supplied demo code from formatting.
+
 Toolchain 0.12.2 built and installed the Compose, Room/KSP2/SQLCipher and signed/shrunk release probes. The [capability matrix](../../docs/toolchain-proof.md) records commands, integration costs and limits. The user explicitly approved migration to Gradle on September 22, 2026 (local date). Use the pinned Gradle wrapper, standard Android variants and instrumentation for remaining Phase 1 work.
 
 Android CLI 1.0.16261425 and ADB work. Always pass `--no-metrics`. API 36 revision 2 and command-line tools 22.0 are installed; builds use tools 37.0.0 and pinned JDK 21. The user removed conflicting `ANDROID_SDK_HOME` and retained `ANDROID_USER_HOME`; no cache redirection was applied.

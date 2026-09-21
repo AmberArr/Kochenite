@@ -25,6 +25,45 @@ JAR SHA-256 is `497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7
 
 ## Build and Install
 
+### Formatting and Local Checks
+
+Spotless 8.10.2 runs ktlint 1.8.0 through Gradle; a global ktlint installation is
+not needed. `.editorconfig` selects ktlint's official defaults, with the documented
+function-naming exception for `@Composable`. Other standard rules remain enabled.
+Kotlin sources in the four project modules and root/module Gradle Kotlin DSL files
+are included. Generated build outputs, Room schemas, `.local`, user skills,
+`.codex` and `receipt-ai-demo` are outside the formatter's targets.
+
+```sh
+./gradlew spotlessApply
+./gradlew spotlessCheck
+./gradlew verify
+```
+
+`verify` combines Spotless, app/persistence Android Lint, domain/app JVM tests,
+recognition-boundary checks and host script tests. It needs the normal SDK/JDK
+and Node.js, but no connected phone or release signing key. It does not replace
+the explicit instrumentation and release journeys below.
+
+Enable the checked-in commit hook once per checkout, after checking for an existing
+`core.hooksPath` or custom `.git/hooks/pre-commit` that should be preserved:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+The hook checks staged whitespace for every commit. Kotlin/build/config changes
+also run a full `spotlessCheck`; docs-only changes skip Gradle. Since Spotless
+reads the worktree, the hook rejects unstaged changes to tracked Kotlin/build/
+config files when formatting checks are needed. Resolve those changes deliberately
+before committing. It never autoformats, stages files, stashes changes or hides
+partial-staging differences. Unrelated unstaged documentation is allowed. Checks
+include all formatter targets, so an untracked Kotlin source within a module can
+also produce a formatting failure. Hooks are local guardrails, not a replacement
+for running `verify` in CI when CI is introduced.
+
+### APKs and Devices
+
 Use the workspace root, installed SDK/JDK and default caches. Restore release
 signing using [these instructions](release-signing.md) before release builds.
 No emulator is used. Run build invocations sequentially, including `clean`.
