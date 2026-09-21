@@ -1,8 +1,8 @@
 # Phase 1: Foundation and Build-System Proof
 
-Status: Toolchain proof, Gradle migration, domain/ViewModel, plain Room integration
-and eleven physical-device assertions verified. Durable signing material exists.
-Final clean-build, release-upgrade and documentation checks are in progress.
+Status: complete for the synthetic Phase 1 foundation. Gradle, plain Room storage,
+device instrumentation, repeat clean builds and signed release upgrade are verified.
+Coverage limits and the prerequisite signing backup before real use are recorded below.
 
 ## Scope and Gate
 
@@ -55,7 +55,7 @@ milestones begin. No automatic fallback or implicitly accepted debug harness.
 ## Exit Criteria
 
 - [x] Build-system choice recorded and clean-output proof debug/release builds repeat.
-- [ ] Debug and signed release run on the reference phone.
+- [x] Debug and signed release run on the reference phone.
 - [x] Domain/ViewModel increment: six JVM tests cover validation/exact money,
       repository error propagation and ViewModel states. Rerun after integration.
 - [x] Plain Room write/read, close/reopen, force-stop/relaunch preserve IDs/values;
@@ -64,13 +64,13 @@ milestones begin. No automatic fallback or implicitly accepted debug harness.
       consistently; unavailable/corrupt storage does not trigger an automatic reset.
 - [x] Reproducible v1 fixture upgrades to v2 preserving fields and nullable note,
       passes Room validation and second reopen; migration failure preserves files.
-- [ ] Add/recreate/relaunch UI journey, light/dark/large text/TalkBack/system bars;
+- [x] Add/recreate/relaunch UI journey, light/dark/large text/TalkBack labels/system bars;
       runner rejects missing/offline serials/unexpected IDs, times out and returns
       failure on failed assertions, produces machine-readable sanitized results.
-- [ ] Permanent signing-key N to N+1 upgrade retains records and database access.
-- [ ] zipalign and apksigner pass; ELF alignment passes for any remaining packaged
+- [x] Permanent signing-key N to N+1 upgrade retains records and database access.
+- [x] zipalign and apksigner pass; ELF alignment passes for any remaining packaged
       native libraries. SQLCipher-specific packaging assertions are removed.
-- [ ] Secrets/private records excluded; focused verified commits; docs/limitations
+- [x] Secrets/private records excluded; focused verified commits; docs/limitations
       and concrete Phase 2 handoff recorded.
 
 Full navigation, financial schema, attachments, portable backup implementation,
@@ -192,7 +192,7 @@ retained as history and do not impose encryption requirements on the foundation.
   untouched pending the next implementation step. No durable release signing key,
   financial schema or recognition behavior exists yet.
 
-## Remaining Work
+## Final Foundation Evidence
 
 Current implementation evidence supersedes the older failure notes above:
 
@@ -216,41 +216,57 @@ Current implementation evidence supersedes the older failure notes above:
 - Signed release version 1 runs; add/force-stop/relaunch passes. Both APKs pass
   signature, ID/SDK/debug isolation, ZIP 16 KB and four Compose native ELF checks.
   No SQLCipher native libraries remain. Actual 16 KB execution is unverified.
-- Final palette correction, modern Compose test-rule APIs, clean build and signed
-  upgrade verification are in progress. Full spoken TalkBack operation remains
-  unverified; automated semantic labels/actions have been checked.
+- Final neutral/teal palette and Compose v2 test rules verified. Light/dark/2x
+  text screenshots reviewed without clipped labels or overlapping controls.
+  Release screenshot verifies status/navigation bar clearance. Spoken TalkBack
+  operation remains unverified; semantic labels/actions have been checked.
+- `./gradlew clean :domain:test :app:testDebugUnitTest :app:assembleDebug
+  :app:assembleDebugAndroidTest :persistence:assembleDebugAndroidTest
+  :app:assembleRelease :app:lintDebug :persistence:lintDebug -PreleaseVersionCode=2`
+  passed. Reinstalled the clean-output debug/test APKs with `install -r` and reran
+  `node scripts/run-device-tests.mjs SERIAL`: eleven tests passed again.
+- `node --test scripts/instrumentation-result.test.mjs`: four tests pass for
+  successful, failed, skipped/incomplete and wrong-count reports. Runner rejects
+  missing serial and nonexistent device with exit 1. APK check rejects a debug
+  package presented as release. Instrumentation targets are checked exactly and
+  commands have bounded timeouts. Summaries contain no assertion values or logs.
+- `node scripts/run-release-journey.mjs SERIAL --upgrade
+  app/build/outputs/apk/release/app-release.apk SDK`: version 1-to-2 upgrade passed
+  using the same permanent key, retaining count and visible amount/date values
+  without clearing storage, followed by another successful restart. Exact IDs and
+  all fields across process restart are covered by the debug instrumentation.
+- Both clean-output APKs pass `scripts/check-apk.mjs`. Release version defaults
+  to 2; a subsequent default `:app:assembleRelease` also passed. Manifest inspection
+  confirms backup/transfer rules, cleartext disabled and no platform permissions;
+  only AndroidX's own signature-protected receiver permission is requested.
+- The key-generation script refuses replacement of the existing identity. Private
+  files/evidence are ignored; only the public SHA-256 certificate is committed:
+  `9cf15b4df2e8b4821e9b3c1d1d494e14e53398c694e2c3aee422666222ab304c`.
+- Foundation/persistence milestone committed as `bc5ea8d`; release/test workflow
+  and final evidence are a separate focused commit. User `.codex/` and demo files
+  remain untouched and unstaged. Branch remains `master`.
+- Current commands, evidence locations, dependencies and future ADB reverse are
+  in [the build guide](../../../docs/gradle-build.md); encrypted signing backup
+  and recovery procedure is in [the signing guide](../../../docs/release-signing.md).
 
-The original remaining-work checklist below is retained until final verification;
-items 1-3 are implemented and verified, and items 4-6 are substantially complete.
+## Limitations and Handoff
 
-1. Restore a working integrated build: fix release-signing task registration,
-   verify the library source-set configuration, remove SQLCipher/key-management
-   code and dependencies, and retire active proof modules. Preserve historical
-   encrypted proof databases; do not reinterpret them as plaintext or silently reset them.
-2. Finish the foundation screen/composition root with the existing domain and
-   ViewModel, plain Room repository and explicit storage states. Verify background
-   database access, resource strings, icon, backup/device-transfer exclusions and
-   absence of camera/notification/storage permissions.
-3. Verify storage: exact values and stable IDs through reopen and process restart,
-   integrity, multi-write rollback, interrupted initialization, unavailable/corrupt
-   storage, v1-to-v2 nullable-note migration, second reopen and failed-migration
-   data retention. Keep reusable tests; remove key/wrong-passphrase/cipher tests.
-4. Restore and adapt the explicit-serial instrumentation/device runner to the
-   foundation packages and tests. Verify add/recreate/force-stop/relaunch, bounded
-   waits, rejected missing/offline devices and unexpected IDs, failing exit codes,
-   and sanitized results. Check light/dark, large text, TalkBack labels and insets.
-5. Create the durable password-protected release signing key under ignored
-   `.local/signing`, restrict permissions, record its public fingerprint, and test
-   signed N-to-N+1 installation without clearing records. Document encrypted key
-   backup/recovery; actual off-machine backup needs a user-controlled destination
-   before real bookkeeping use. Never silently regenerate a missing signing key.
-6. Repeat clean debug/release builds and relevant JVM/device tests; verify R8,
-   signatures, APK alignment and remaining native libraries. Record lint results
-   and untested OS/page-size coverage, including unverified 16 KB runtime behavior.
-7. Update current build/test/release documentation to replace proof-only commands,
-   make focused verified commits, close supported exit criteria, and document the
-   concrete Phase 2 handoff. Do not begin Phase 2 before Phase 1 is verified.
+No remaining Phase 1 implementation blocker. Other Android versions, other device
+sizes, 16 KB runtime, spoken TalkBack, Android Studio sync and actual OS backup/
+device-transfer execution are unverified. Interrupted creation uses an injected
+callback failure, not a physical power cut. Native libraries pass static checks;
+the clean build packages Compose's prebuilt library without extra symbol stripping.
 
-Next concrete action: finish clean-output verification, signed version 1-to-2
-upgrade, screenshot review and current workflow documentation. Then record the
-remaining coverage limits and Phase 2 handoff. Do not begin Phase 2 yet.
+The signing key has not been backed up off-machine. A user-controlled destination
+and successful recovery check must be recorded before real bookkeeping use.
+This is separate from future encrypted exported database backups. Never regenerate
+the release identity to resolve a missing local key.
+
+Phase 2 has not started. Its next concrete action, when authorized, is to create
+`02-manual-bookkeeping.md` around the actual modules and design/test the separate
+financial schema and posting invariants first. Reuse the composition root,
+storage initialization/failure handling, migration tests, explicit device runner,
+signing identity and release upgrade checks. Keep `foundation-proof.db` disposable
+and separate; do not treat samples as financial transactions. Then implement
+setup/accounts/categories/manual entry/transfers and encrypted backup/restore.
+Recognition fixtures/provider contracts remain Phase 3 work.

@@ -1,0 +1,44 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+
+const directory = fileURLToPath(new URL('../.local/signing/', import.meta.url));
+const fingerprint = fileURLToPath(new URL('../docs/release-certificate.sha256', import.meta.url));
+const keystore = join(directory, 'kochenite-release.p12');
+const properties = join(directory, 'keystore.properties');
+if (existsSync(directory) || existsSync(fingerprint)) {
+  throw new Error('Release identity already exists or was recorded; restore the original signing material.');
+}
+mkdirSync(directory, { recursive: true, mode: 0o700 });
+chmodSync(directory, 0o700);
+const password = randomBytes(32).toString('hex');
+const result = spawnSync('keytool', [
+  '-genkeypair', '-keystore', keystore, '-storetype', 'PKCS12',
+  '-storepass:env', 'KOCHENITE_RELEASE_PASSWORD',
+  '-keypass:env', 'KOCHENITE_RELEASE_PASSWORD',
+  '-alias', 'kochenite-release', '-keyalg', 'RSA', '-keysize', '3072',
+  '-validity', '10000', '-dname', 'CN=Kochenite Release', '-noprompt',
+], {
+  env: { ...process.env, KOCHENITE_RELEASE_PASSWORD: password },
+  stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000,
+});
+if (result.error || result.status !== 0) {
+  throw new Error('Release key generation failed; inspect the local directory before retrying.');
+}
+chmodSync(keystore, 0o600);
+writeFileSync(`${properties}.tmp`, [
+  `storeFile=${keystore}`,
+  `storePassword=${password}`,
+  'keyAlias=kochenite-release',
+  `keyPassword=${password}`,
+  '',
+].join('\n'), { mode: 0o600, flag: 'wx' });
+renameSync(`${properties}.tmp`, properties);
+const certificate = spawnSync('keytool', ['-exportcert', '-keystore', keystore,
+  '-storepass:env', 'KOCHENITE_RELEASE_PASSWORD', '-alias', 'kochenite-release'],
+  { env: { ...process.env, KOCHENITE_RELEASE_PASSWORD: password }, timeout: 60_000 });
+if (certificate.error || certificate.status !== 0) throw new Error('Cannot record release certificate; do not regenerate the key.');
+writeFileSync(fingerprint, `${createHash('sha256').update(certificate.stdout).digest('hex')}\n`, { flag: 'wx' });
+console.log('Release identity created in .local/signing; public fingerprint recorded in docs/release-certificate.sha256.');

@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 in progress. Plain Room/SQLite foundation builds and eleven device assertions pass. Durable signing exists; final clean-build, release-upgrade and documentation checks remain.
+Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 has not started. Off-machine signing backup is still required before real bookkeeping use.
 
 ## Goal and Agreed Decisions
 
@@ -147,11 +147,11 @@ Preserve the recognition contract for a possible Supabase Edge Function deployme
 
 ## Implementation Phases and Exit Criteria
 
-Phase 1 proof has started. Complete and verify each phase before moving on; commit coherent verified increments within phases.
+Phase 1 is verified. Complete and verify each phase before moving on; commit coherent verified increments within phases.
 
 ### Phase 1: Foundation and Toolchain Proof
 
-Status: plain Room storage, integrated UI, six JVM and eleven device tests pass. The Gradle registration failure is resolved, and permanent release signing is configured. Final clean-build, release-upgrade and documentation checks remain. See [Gradle commands](../../docs/gradle-build.md) and the [Phase 1 plan](phases/01-foundation.md) for current work and evidence.
+Status: complete. Plain Room storage, integrated UI, six JVM/four runner-parser/eleven device tests, repeat clean builds and permanent-key release 1-to-2 upgrade pass. See [Gradle commands](../../docs/gradle-build.md) and the [Phase 1 plan](phases/01-foundation.md) for evidence and coverage limits. Spoken TalkBack and 16 KB runtime remain unverified; off-machine signing backup is required before real use.
 
 - Initialize an isolated pinned Kotlin Toolchain 0.12.2 Compose proof with default caches and appropriate generated-output/secret ignores. Stop at four active hours or earlier decisive evidence and obtain the user's build-system choice.
 - Finish Compose integration, Room generation and plain SQLite migrations, and deployment to the remote physical phone. Remove SQLCipher and database-key code/dependencies from the active foundation.
@@ -218,4 +218,4 @@ The initial product is a personal sideloaded Android app with one local book con
 
 ## New-Session Handoff
 
-Read this file and the detailed Phase 1 plan. The plain Room foundation is implemented and device-tested. Finish clean-build and signed-upgrade verification and document the release/test workflow. Preserve transaction, migration, corruption/file-retention and backup-exclusion requirements. Restore the existing signing identity when needed; never regenerate it. Off-machine encrypted signing backup needs a user-controlled destination before real bookkeeping use. Do not start Phase 2. Recognition fixtures and provider-contract design remain Phase 3 work.
+Read this file and the completed Phase 1 plan. The plain Room foundation is verified and release version 2 is installed on the reference phone. Phase 2 has not started; when authorized, write its detailed plan and begin with the separate financial schema/posting invariants. Reuse the build, storage-failure handling, instrumentation and signing workflow. Keep the sample database separate. Restore the existing signing identity when needed; never regenerate it. Off-machine encrypted signing backup needs a user-controlled destination and recovery check before real bookkeeping use. Recognition fixtures and provider-contract design remain Phase 3 work.

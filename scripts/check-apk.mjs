@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 const [apkArg, sdkArg, mode] = process.argv.slice(2);
 if (!apkArg || !sdkArg || !['debug', 'release'].includes(mode) || process.argv.length !== 5) {
-  throw new Error('Usage: node scripts/check-proof-apk.mjs APK SDK_DIRECTORY debug|release');
+  throw new Error('Usage: node scripts/check-apk.mjs APK SDK_DIRECTORY debug|release');
 }
 const apk = resolve(apkArg);
 const buildTools = join(resolve(sdkArg), 'build-tools', '37.0.0');
@@ -15,7 +15,7 @@ function run(command, args, binary = false) {
   if (result.error || result.status !== 0) throw new Error(`${command} failed`);
   return result.stdout;
 }
-const expected = mode === 'debug' ? 'moe.frost.kochenite.debug' : 'moe.frost.kochenite.debug.releaseproof';
+const expected = mode === 'debug' ? 'moe.frost.kochenite.debug' : 'moe.frost.kochenite';
 const badging = run(join(buildTools, 'aapt2'), ['dump', 'badging', apk]);
 if (!badging.includes(`package: name='${expected}'`)) throw new Error('Unexpected application ID');
 if (badging.includes('application-debuggable') !== (mode === 'debug')) throw new Error('Incorrect debuggable state');
@@ -23,13 +23,18 @@ if (!badging.includes("minSdkVersion:'26'") || !badging.includes("targetSdkVersi
   throw new Error('Incorrect SDK configuration');
 }
 if (/uses-permission: name='android\.permission\./.test(badging)) throw new Error('Unexpected platform permission');
-run(join(buildTools, 'apksigner'), ['verify', '--verbose', apk]);
+const signature = run(join(buildTools, 'apksigner'), ['verify', '--verbose', '--print-certs', apk]);
+if (mode === 'release' && !signature.includes(`certificate SHA-256 digest: ${readFileSync('docs/release-certificate.sha256', 'utf8').trim()}`)) {
+  throw new Error('Release signing identity does not match recorded certificate');
+}
 run(join(buildTools, 'zipalign'), ['-c', '-P', '16', '4', apk]);
 const entries = run('unzip', ['-Z1', apk]).trim().split('\n');
 const native = entries.filter(entry => /^lib\/[^/]+\/[^/]+\.so$/.test(entry));
-if (native.length !== 8) throw new Error('Unexpected native library set; review before changing the expectation');
-mkdirSync('.local/proof-evidence', { recursive: true });
-const extracted = mkdtempSync('.local/proof-evidence/apk-native-');
+if (native.length !== 4 || native.some(entry => !entry.endsWith('/libandroidx.graphics.path.so'))) {
+  throw new Error('Unexpected native library set; review before changing the expectation');
+}
+mkdirSync('.local/foundation-evidence', { recursive: true });
+const extracted = mkdtempSync('.local/foundation-evidence/apk-native-');
 for (const entry of native) {
   const file = join(extracted, entry.replaceAll('/', '_'));
   writeFileSync(file, run('unzip', ['-p', apk, entry], true));
@@ -56,5 +61,5 @@ if (hasDebugCode !== (mode === 'debug') || hasDebugResource !== (mode === 'debug
 const summary = { ok: true, package: expected, debuggable: mode === 'debug', nativeLibraries: native.length,
   zipAlignment16Kb: true, elfAlignment16Kb: true, signature: true, debugIsolation: true,
   runtime16Kb: 'unverified' };
-writeFileSync(`.local/proof-evidence/${mode}-apk.json`, `${JSON.stringify(summary, null, 2)}\n`);
+writeFileSync(`.local/foundation-evidence/${mode}-apk.json`, `${JSON.stringify(summary, null, 2)}\n`);
 console.log(JSON.stringify(summary));

@@ -2,7 +2,8 @@
 
 Status: historical Toolchain proof, preserved in commit `368ce38`. The user chose
 Gradle on September 22, 2026 (local date); see [the current build](gradle-build.md).
-Commands and paths below describe that proof commit. Phase 1 is incomplete.
+Commands and paths below describe that proof commit. For current Phase 1 status,
+see the [phase plan](../.agents/plans/phases/01-foundation.md).
 The `proof-*`/`toolchain-proof` modules were
 disposable experiments with a public test database key, not a safe place for
 financial records. Work began 2026-09-21 15:09 UTC; final verification completed
