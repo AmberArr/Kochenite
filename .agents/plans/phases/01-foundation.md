@@ -299,3 +299,19 @@ The tooling setup and source normalization are separate commits. The local hook
 is enabled via `core.hooksPath=.githooks` and passed against the staged formatting
 baseline. Device tests were not rerun
 for these formatting/import-only changes. Phase 2 has not started.
+
+## Workspace Cleanup
+
+Removed generated root/module builds, retired Toolchain module directories,
+disposable variant probes, old proof build logs and extracted native libraries.
+Workspace usage fell from approximately 265 MB to 19 MB. Default tool caches
+remain in place. Signing identities, sanitized result summaries, screenshots,
+user skills, `.codex` and the supplied recognition demo are preserved; file hashes
+confirmed preservation during cleanup.
+
+The APK checker now removes its extraction directory in a `finally` block.
+Debug and signed release APK checks passed before removing build outputs;
+`git diff --check` passed. No application code changed or device tests reran.
+Rebuild APKs with the documented commands when next needed. Phase 2 remains
+unstarted; its next action and the off-machine signing-backup requirement above
+are unchanged.

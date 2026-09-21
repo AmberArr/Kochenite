@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 const [apkArg, sdkArg, mode] = process.argv.slice(2);
@@ -35,20 +35,24 @@ if (native.length !== 4 || native.some(entry => !entry.endsWith('/libandroidx.gr
 }
 mkdirSync('.local/foundation-evidence', { recursive: true });
 const extracted = mkdtempSync('.local/foundation-evidence/apk-native-');
-for (const entry of native) {
-  const file = join(extracted, entry.replaceAll('/', '_'));
-  writeFileSync(file, run('unzip', ['-p', apk, entry], true));
-  const loads = run('readelf', ['-lW', file]).split('\n').filter(line => /^\s*LOAD\s/.test(line));
-  if (loads.length === 0) throw new Error('No ELF load segments');
-  for (const line of loads) {
-    const fields = line.trim().split(/\s+/);
-    const offset = BigInt(fields[1]);
-    const address = BigInt(fields[2]);
-    const alignment = BigInt(fields.at(-1));
-    if (alignment < 16384n || offset % 16384n !== address % 16384n) {
-      throw new Error(`16 KB ELF alignment failed: ${entry}`);
+try {
+  for (const entry of native) {
+    const file = join(extracted, entry.replaceAll('/', '_'));
+    writeFileSync(file, run('unzip', ['-p', apk, entry], true));
+    const loads = run('readelf', ['-lW', file]).split('\n').filter(line => /^\s*LOAD\s/.test(line));
+    if (loads.length === 0) throw new Error('No ELF load segments');
+    for (const line of loads) {
+      const fields = line.trim().split(/\s+/);
+      const offset = BigInt(fields[1]);
+      const address = BigInt(fields[2]);
+      const alignment = BigInt(fields.at(-1));
+      if (alignment < 16384n || offset % 16384n !== address % 16384n) {
+        throw new Error(`16 KB ELF alignment failed: ${entry}`);
+      }
     }
   }
+} finally {
+  rmSync(extracted, { recursive: true, force: true });
 }
 const dexFiles = entries.filter(entry => /^classes\d*\.dex$/.test(entry));
 const marker = Buffer.from('kochenite-debug-only-marker');
