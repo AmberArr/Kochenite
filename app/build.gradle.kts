@@ -6,9 +6,10 @@ plugins {
 }
 
 val releaseSigningFile = rootProject.file(".local/signing/keystore.properties")
-val releaseSigning = Properties().apply {
-    if (releaseSigningFile.isFile) releaseSigningFile.inputStream().use { load(it) }
-}
+val releaseSigning =
+    Properties().apply {
+        if (releaseSigningFile.isFile) releaseSigningFile.inputStream().use { load(it) }
+    }
 android {
     namespace = "moe.frost.kochenite"
     compileSdk = 36
@@ -17,17 +18,24 @@ android {
         applicationId = "moe.frost.kochenite"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("releaseVersionCode").orElse("2").get().toInt()
+        versionCode =
+            providers
+                .gradleProperty("releaseVersionCode")
+                .orElse("2")
+                .get()
+                .toInt()
         versionName = "0.1.$versionCode"
         testApplicationId = "moe.frost.kochenite.debug.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
-        if (releaseSigningFile.isFile) create("release") {
-            storeFile = file(releaseSigning.getProperty("storeFile"))
-            storePassword = releaseSigning.getProperty("storePassword")
-            keyAlias = releaseSigning.getProperty("keyAlias")
-            keyPassword = releaseSigning.getProperty("keyPassword")
+        if (releaseSigningFile.isFile) {
+            create("release") {
+                storeFile = file(releaseSigning.getProperty("storeFile"))
+                storePassword = releaseSigning.getProperty("storePassword")
+                keyAlias = releaseSigning.getProperty("keyAlias")
+                keyPassword = releaseSigning.getProperty("keyPassword")
+            }
         }
     }
     buildTypes {
@@ -63,7 +71,9 @@ dependencies {
 }
 val requireReleaseSigning by tasks.registering {
     doLast {
-        check(releaseSigningFile.isFile) { "Release signing is missing. Restore .local/signing; never regenerate an existing release identity." }
+        check(
+            releaseSigningFile.isFile,
+        ) { "Release signing is missing. Restore .local/signing; never regenerate an existing release identity." }
         check(file(releaseSigning.getProperty("storeFile")).isFile) { "Release keystore is missing; restore it from backup." }
     }
 }

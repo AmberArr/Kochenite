@@ -1,15 +1,22 @@
 package moe.frost.kochenite
 
 import android.view.WindowManager
-import androidx.compose.ui.test.*
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import moe.frost.kochenite.domain.StorageState
 import org.json.JSONArray
 import org.json.JSONObject
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
@@ -26,21 +33,33 @@ class FoundationDeviceTest {
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("record-count").fetchSemanticsNodes().size == 1 }
     }
 
-    private fun snapshot(): String = runBlocking {
-        val repository = ((context.applicationContext as KocheniteApplication).storage.open() as StorageState.Ready).repository
-        JSONArray().apply {
-            repository.observe().first().sortedBy { it.id }.forEach {
-                put(JSONObject().put("id", it.id).put("amountMinor", it.amountMinor)
-                    .put("currency", it.currency).put("currencyScale", it.currencyScale)
-                    .put("occurredAtEpochMillis", it.occurredAtEpochMillis).put("note", it.note ?: JSONObject.NULL))
-            }
-        }.toString()
-    }
+    private fun snapshot(): String =
+        runBlocking {
+            val repository = ((context.applicationContext as KocheniteApplication).storage.open() as StorageState.Ready).repository
+            JSONArray()
+                .apply {
+                    repository.observe().first().sortedBy { it.id }.forEach {
+                        put(
+                            JSONObject()
+                                .put("id", it.id)
+                                .put("amountMinor", it.amountMinor)
+                                .put("currency", it.currency)
+                                .put("currencyScale", it.currencyScale)
+                                .put("occurredAtEpochMillis", it.occurredAtEpochMillis)
+                                .put("note", it.note ?: JSONObject.NULL),
+                        )
+                    }
+                }.toString()
+        }
 
     @Test fun addRecreateAndCheckpoint() {
         ready()
         val before = JSONArray(snapshot()).length()
-        compose.onNodeWithText("Add sample").assertHasClickAction().assertIsEnabled().performClick()
+        compose
+            .onNodeWithText("Add sample")
+            .assertHasClickAction()
+            .assertIsEnabled()
+            .performClick()
         compose.waitUntil(15_000) {
             compose.onAllNodesWithText("Records: ${before + 1}").fetchSemanticsNodes().size == 1
         }

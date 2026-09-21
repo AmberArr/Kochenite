@@ -278,7 +278,7 @@ Pinned Spotless 8.10.2 and ktlint 1.8.0 through the existing wrapper; no global
 ktlint installation is needed. Root configuration targets only project Kotlin
 sources and Gradle Kotlin DSL. `.editorconfig` uses official ktlint rules with
 the documented naming exception for `@Composable` functions. Wildcard imports
-were expanded; existing sources are being normalized in a separate style commit.
+were expanded; existing sources are normalized in a separate style commit.
 
 Added `verify` for Spotless, app/persistence Android Lint, six JVM tests,
 recognition-boundary checks and host script tests. The versioned pre-commit hook
@@ -295,6 +295,7 @@ them. One throw-only callback needed its equivalent explicit Unit expression to
 normalize cleanly. `spotlessApply`, `spotlessCheck`, full `verify` and compilation
 of both instrumentation source sets pass. A second formatter pass leaves the diff
 unchanged. Lint remains at zero errors (eleven app and six persistence warnings).
-The tooling setup and source normalization are separate commits; local hook
-activation follows staging the formatting baseline. Device tests were not rerun
+The tooling setup and source normalization are separate commits. The local hook
+is enabled via `core.hooksPath=.githooks` and passed against the staged formatting
+baseline. Device tests were not rerun
 for these formatting/import-only changes. Phase 2 has not started.

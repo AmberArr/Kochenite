@@ -21,19 +21,27 @@ data class SampleRecord(
     }
 }
 
-fun minorUnits(value: String, scale: Int): Long {
+fun minorUnits(
+    value: String,
+    scale: Int,
+): Long {
     require(scale in 0..3)
     return BigDecimal(value).movePointRight(scale).longValueExact()
 }
 
 interface SampleRepository {
     fun observe(): Flow<List<SampleRecord>>
+
     suspend fun insertAtomically(records: List<SampleRecord>)
 }
 
 sealed interface StorageState {
-    data class Ready(val repository: SampleRepository) : StorageState
+    data class Ready(
+        val repository: SampleRepository,
+    ) : StorageState
+
     data object TemporarilyUnavailable : StorageState
+
     data object RecoveryRequired : StorageState
 }
 
