@@ -1,0 +1,24 @@
+product:
+  type: lib
+  platforms: [android]
+
+dependencies:
+  - androidx.room:room-runtime:2.8.4: exported
+  - net.zetetic:sqlcipher-android:4.17.0
+  - androidx.sqlite:sqlite:2.6.2
+
+settings:
+  android:
+    namespace: moe.frost.kochenite.proof.storage
+    minSdk: 26
+    compileSdk: 36
+  jvm:
+    jdk:
+      version: 21
+  kotlin:
+    ksp:
+      version: 2.3.11
+      processors:
+        - androidx.room:room-compiler:2.8.4
+      processorOptions:
+        room.schemaLocation: ./schemas

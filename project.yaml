@@ -1,0 +1,7 @@
+modules:
+  - proof-domain
+  - proof-instrumentation
+  - proof-release
+  - proof-storage
+  - proof-ui
+  - toolchain-proof

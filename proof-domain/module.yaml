@@ -1,0 +1,6 @@
+product: jvm/lib
+
+settings:
+  jvm:
+    jdk:
+      version: 21

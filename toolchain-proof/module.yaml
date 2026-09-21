@@ -1,0 +1,16 @@
+product: android/app
+
+dependencies:
+  - //proof-ui
+
+settings:
+  android:
+    namespace: "moe.frost.kochenite"
+    applicationId: "moe.frost.kochenite.debug"
+    minSdk: 26
+    compileSdk: 36
+    targetSdk: 36
+    versionName: proof
+  jvm:
+    jdk:
+      version: 21

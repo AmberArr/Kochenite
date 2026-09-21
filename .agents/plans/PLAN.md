@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: planning complete; implementation has not started.
+Status: Phase 1 bounded Toolchain proof reached the decision gate; user's build-system choice pending. Phase 1 is not complete.
 
 ## Goal and Agreed Decisions
 
@@ -8,7 +8,7 @@ Build a native, offline-first bookkeeping app for personal use, delivered in usa
 
 Agreed choices:
 
-- Native Kotlin and Jetpack Compose, using Kotlin Toolchain rather than Gradle.
+- Native Kotlin and Jetpack Compose. Prove Kotlin Toolchain 0.12.2 within four hours of active engineering, then present evidence for the user's explicit build-system decision before foundation implementation.
 - A comprehensive everyday-finance product delivered in phases.
 - Local financial storage, with portable backups. Direct Google Drive/OneDrive support can be discussed later.
 - Configurable reporting currency during setup.
@@ -17,7 +17,7 @@ Agreed choices:
 - Configurable notification sources, conservative default templates, and user-editable templates with previews.
 - Compact modern ledger UI with light and dark themes.
 - Generic CSV import/export; no Bluecoins-specific migration promise.
-- The user will supply a recognition demo later. Start with a local fixture service and an adapter boundary.
+- The recognition demo is supplied in `receipt-ai-demo/a.js` and `receipt-ai-demo/prompt.txt`. It is a provider-integration reference, not a validated contract. Phase 3 retains deterministic fixtures and defines the provider contract then.
 - A possible Supabase Edge Function gateway with Supabase Auth is a later deployment option. A user-supplied recognition gateway without app sign-in is also deferred for later discussion.
 - Use Git and make focused commits after verified milestones. Preserve the user's chosen `master` branch.
 
@@ -31,18 +31,11 @@ This machine does not support KVM. Do not create or launch an Android emulator. 
 
 At planning time, wireless ADB connected to a OnePlus 6T (`ONEPLUS_A6013`) running Android 15 / API 35. Its observed serial was `adb-a2480128-JKi84V._adb-tls-connect._tcp`; rediscover the current serial with `adb devices -l` in each session and select it explicitly. Do not assume the serial remains stable. Never clear or uninstall the user's Bluecoins app or change its records during reference inspection.
 
-Kotlin Toolchain 0.12.2 is installed. Its default cache failed under the sandbox, but the following workspace-local configuration was verified to work:
+Kotlin Toolchain 0.12.2 is installed. Run build commands from the workspace root using default tool caches and the checked-in wrapper once present. If permissions block a tool/cache path, report the exact error and request required access; do not redirect caches or repurpose environment variables. Keep generated outputs and caches ignored.
 
-```sh
-export XDG_CACHE_HOME="$PWD/.cache"
-kotlin --shared-cache-dir="$PWD/.cache/kotlin" --version
-```
+Toolchain 0.12.2 has built and installed the Compose, Room/KSP2/SQLCipher and signed/shrunk release probes. Two real instrumentation tests and the release add/restart journey passed. The [capability matrix](../../docs/toolchain-proof.md) records commands, integration costs and limits. Recommendation: Gradle for reliable Android variant, library and instrumentation workflows; retaining Toolchain with documented workarounds remains possible. The user must choose; no switch is authorized yet.
 
-After scaffolding, use the checked-in `./kotlin` wrapper with the same cache configuration. Keep `.cache/` ignored. If other tools encounter read-only cache paths, redirect their supported cache settings into workspace `.cache/` first. Do not repurpose `HOME` or `CODEX_HOME`.
-
-Kotlin Toolchain documentation confirms Android packaging and Room generation through KSP2. Actual app builds, encryption packaging, release signing, and physical-device test integration still need proof. If Toolchain causes a substantial blocker, explain the concrete problem to the user, who will consider switching to Gradle. Do not switch silently.
-
-The Android CLI initially failed writing a lock beneath the read-only SDK directory; ordinary ADB worked. Prefer ADB when the CLI remains unavailable. The host had JDK 21, Android platform 35, and build tools 34/37 at inspection; install/configure the planned SDK in a writable location as needed during implementation.
+Android CLI 1.0.16261425 and ADB work. Always pass `--no-metrics`. API 36 revision 2 and command-line tools 22.0 are installed; builds use tools 37.0.0 and pinned JDK 21. The user removed conflicting `ANDROID_SDK_HOME` and retained `ANDROID_USER_HOME`; no cache redirection was applied.
 
 ## Reference and Product Scope
 
@@ -124,7 +117,7 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 
 Define `RecognitionGateway.recognize(request)` independently of hosting and model provider. The versioned request includes a request ID, images, and optional locale/currency hints. Results include merchant, date, currency, totals, items, adjustments, warnings, and available field evidence/confidence. Transfer decimal values as strings. Treat confidence as a review aid, not proof of correctness.
 
-Build a small TypeScript/Node HTTP development service with `GET /health` and `POST /v1/recognize`. Start with deterministic fixture responses, a provider-adapter interface, a documented contract, and shared contract-test fixtures. The user's later demo determines the real provider implementation; do not invent its protocol or select a model beforehand.
+In Phase 3, build a small TypeScript/Node HTTP development service with `GET /health` and `POST /v1/recognize`. Start with deterministic fixture responses, a provider-adapter interface, a documented contract, and shared contract-test fixtures. Consult the supplied demo when designing the real provider integration; its protocol is not yet a validated contract. No recognition service is implemented in Phase 1.
 
 Bind the service to localhost. Connect the physical phone using:
 
@@ -153,18 +146,20 @@ Preserve the recognition contract for a possible Supabase Edge Function deployme
 
 ## Implementation Phases and Exit Criteria
 
-Only planning and environment inspection have occurred. Update these statuses as work progresses. Complete and verify each phase before moving on; commit coherent verified increments within phases when useful.
+Phase 1 proof has started. Complete and verify each phase before moving on; commit coherent verified increments within phases.
 
 ### Phase 1: Foundation and Toolchain Proof
 
-Status: not started.
+Status: proof verified; awaiting user's build-system decision before remaining implementation. Detailed deliverables, evidence and exit criteria: [Phase 1 plan](phases/01-foundation.md).
 
-- Initialize a pinned Kotlin Toolchain 0.12.2 wrapper and the native Compose project, with workspace-local caches and appropriate generated-output/secret ignores.
+- Initialize an isolated pinned Kotlin Toolchain 0.12.2 Compose proof with default caches and appropriate generated-output/secret ignores. Stop at four active hours or earlier decisive evidence and obtain the user's build-system choice.
 - Prove Compose builds, Room generation and migrations, SQLCipher packaging, and deployment to the remote physical phone.
 - Prove release APK creation/signing and upgrade continuity; keep signing credentials and keys outside Git. Check encrypted native-library packaging compatibility, including modern page-size requirements.
 - Establish JVM tests and a repeatable physical-device journey runner. Verify Android instrumentation support early. If substantial unsupported build integration is required, explain the blocker to the user before considering a Gradle switch.
 - Document build, test, explicit device selection, installation, log collection, screenshots, and local-service tunneling. Do not create an emulator.
-- Exit: a reproducibly built app runs on the phone, persists encrypted sample data, and passes a basic restart/migration smoke check with a usable test path.
+- IDs: release `moe.frost.kochenite`, debug `moe.frost.kochenite.debug`; disposable `foundation-proof.db` stays separate from Phase 2 finance schema. Durable signing key is created only after the build decision, under ignored `.local/signing`.
+- The proof uses `toolchain-probe.db` and temporary release ID `moe.frost.kochenite.debug.releaseproof`, preserving the permanent identity for its durable key. SQLCipher 4.17.0/SQLite 2.6.2 preserve API 36; SQLCipher 4.19.0 requires compile API 37. Reassess versions after the build choice without silently changing SDK requirements.
+- Exit: all detailed Phase 1 criteria have evidence, including encrypted persistence/restart/atomicity/migration, signed release upgrade, repeatable device tests and static native checks. API 35/4 KB phone coverage does not establish other OS or 16 KB runtime support.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
@@ -179,7 +174,7 @@ Status: not started.
 Status: not started.
 
 - Deliver image acquisition, persistent drafts, fixture gateway, review/reconciliation, retries, and receipt-to-existing-transaction matching.
-- Document the provider adapter for the user's later demo. Fixture mode must make this phase testable before the demo arrives; real AI accuracy remains unverified until a real provider is integrated.
+- Design the provider contract with reference to the supplied demo. Preserve deterministic fixture mode independently of provider integration; real AI accuracy remains unverified until a real provider is integrated.
 - Exit: complete capture-to-posting journeys work over remote ADB, including error recovery, without changing ledger logic when the provider adapter is replaced.
 
 ### Phase 4: Notification Capture
@@ -222,4 +217,4 @@ The initial product is a personal sideloaded Android app with one local book con
 
 ## New-Session Handoff
 
-Read this file and applicable repository instructions before implementation. Begin with Phase 1 and work through its exit criteria. Use the installed skills where relevant, especially Kotlin Toolchain, Android CLI/device workflows, and UI/UX guidance. Use workspace-local caches and physical-device ADB only. Update phase status and validation evidence here as work is completed, and make focused Git commits. If the toolchain blocks essential Android functionality, report the verified blocker before changing build systems. The recognition demo is still pending, so implement fixture mode first.
+Read this file, the current detailed phase plan and proof capability matrix. Obtain or honor the user's explicit Toolchain/Gradle choice before remaining Phase 1 implementation. Do not mistake the synthetic proof for the foundation or start Phase 2. Use default caches and explicitly selected physical-device ADB. Run CLI builds sequentially; concurrent builds raced on KSP output. Update phase evidence and make focused Git commits. The recognition demo is supplied; fixture recognition and provider-contract design remain Phase 3 work.

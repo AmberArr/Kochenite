@@ -1,0 +1,21 @@
+product: android/app
+
+dependencies:
+  - //proof-storage
+  - androidx.activity:activity-compose:1.13.0
+  - androidx.test:runner:1.7.0
+  - androidx.test:rules:1.7.0
+  - androidx.compose.ui:ui-test-junit4:1.11.2
+  - junit:junit:4.13.2
+
+settings:
+  android:
+    namespace: moe.frost.kochenite.proof.test
+    applicationId: moe.frost.kochenite.debug.test
+    minSdk: 26
+    compileSdk: 36
+    targetSdk: 36
+  jvm:
+    jdk:
+      version: 21
+  junit: junit-4
