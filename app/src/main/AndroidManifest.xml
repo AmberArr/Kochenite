@@ -1,7 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="Kochenite proof" android:allowBackup="false"
-                 android:fullBackupContent="false" android:usesCleartextTraffic="false">
-        <activity android:name="moe.frost.kochenite.proof.ui.MainActivity"
+    <application android:name=".KocheniteApplication" android:label="@string/app_name"
+                 android:icon="@drawable/ic_launcher" android:allowBackup="false"
+                 android:fullBackupContent="@xml/backup_rules"
+                 android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false">
+        <activity android:name=".MainActivity"
                   android:theme="@android:style/Theme.Material.Light.NoActionBar"
                   android:exported="true">
             <intent-filter>

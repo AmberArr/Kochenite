@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 in progress. Gradle migration is verified. The user selected plain Room/SQLite in private internal storage instead of SQLCipher; implementation cleanup and foundation verification remain. Phase 1 is not complete.
+Status: Phase 1 in progress. Plain Room/SQLite foundation builds and eleven device assertions pass. Durable signing exists; final clean-build, release-upgrade and documentation checks remain.
 
 ## Goal and Agreed Decisions
 
@@ -151,7 +151,7 @@ Phase 1 proof has started. Complete and verify each phase before moving on; comm
 
 ### Phase 1: Foundation and Toolchain Proof
 
-Status: proof and Gradle migration verified, including repeat clean builds and real instrumentation. Domain/ViewModel tests pass. Plain Room storage, integrated UI, device tests and durable release workflow remain incomplete. The uncommitted foundation currently has a Gradle task-registration failure. See [Gradle commands](../../docs/gradle-build.md) for the verified migration milestone and the [Phase 1 plan](phases/01-foundation.md) for current work.
+Status: plain Room storage, integrated UI, six JVM and eleven device tests pass. The Gradle registration failure is resolved, and permanent release signing is configured. Final clean-build, release-upgrade and documentation checks remain. See [Gradle commands](../../docs/gradle-build.md) and the [Phase 1 plan](phases/01-foundation.md) for current work and evidence.
 
 - Initialize an isolated pinned Kotlin Toolchain 0.12.2 Compose proof with default caches and appropriate generated-output/secret ignores. Stop at four active hours or earlier decisive evidence and obtain the user's build-system choice.
 - Finish Compose integration, Room generation and plain SQLite migrations, and deployment to the remote physical phone. Remove SQLCipher and database-key code/dependencies from the active foundation.
@@ -218,4 +218,4 @@ The initial product is a personal sideloaded Android app with one local book con
 
 ## New-Session Handoff
 
-Read this file and the detailed Phase 1 plan. Gradle migration is verified. The user selected plain Room/SQLite; remove the uncommitted SQLCipher/database-key implementation and its encryption-specific tests, fix the current Gradle task-registration failure, then verify the integrated foundation using `./gradlew`. Preserve transaction, migration, corruption/file-retention and backup-exclusion requirements. Release signing and encrypted portable backups are separate from database encryption and remain required. Do not start Phase 2. Use default caches and explicitly selected physical-device ADB, update phase evidence, and make focused commits. Recognition fixtures and provider-contract design remain Phase 3 work.
+Read this file and the detailed Phase 1 plan. The plain Room foundation is implemented and device-tested. Finish clean-build and signed-upgrade verification and document the release/test workflow. Preserve transaction, migration, corruption/file-retention and backup-exclusion requirements. Restore the existing signing identity when needed; never regenerate it. Off-machine encrypted signing backup needs a user-controlled destination before real bookkeeping use. Do not start Phase 2. Recognition fixtures and provider-contract design remain Phase 3 work.

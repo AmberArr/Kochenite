@@ -1,8 +1,8 @@
 # Phase 1: Foundation and Build-System Proof
 
-Status: bounded Toolchain proof, Gradle migration, and domain/ViewModel increment verified.
-The user selected plain Room/SQLite instead of SQLCipher. Phase 1 is incomplete;
-uncommitted foundation integration still needs implementation cleanup and verification.
+Status: Toolchain proof, Gradle migration, domain/ViewModel, plain Room integration
+and eleven physical-device assertions verified. Durable signing material exists.
+Final clean-build, release-upgrade and documentation checks are in progress.
 
 ## Scope and Gate
 
@@ -58,11 +58,11 @@ milestones begin. No automatic fallback or implicitly accepted debug harness.
 - [ ] Debug and signed release run on the reference phone.
 - [x] Domain/ViewModel increment: six JVM tests cover validation/exact money,
       repository error propagation and ViewModel states. Rerun after integration.
-- [ ] Plain Room write/read, close/reopen, force-stop/relaunch preserve IDs/values;
+- [x] Plain Room write/read, close/reopen, force-stop/relaunch preserve IDs/values;
       SQLite integrity check passes.
-- [ ] Multi-write failure rolls back; interrupted database creation retries
+- [x] Multi-write failure rolls back; interrupted database creation retries
       consistently; unavailable/corrupt storage does not trigger an automatic reset.
-- [ ] Reproducible v1 fixture upgrades to v2 preserving fields and nullable note,
+- [x] Reproducible v1 fixture upgrades to v2 preserving fields and nullable note,
       passes Room validation and second reopen; migration failure preserves files.
 - [ ] Add/recreate/relaunch UI journey, light/dark/large text/TalkBack/system bars;
       runner rejects missing/offline serials/unexpected IDs, times out and returns
@@ -194,6 +194,35 @@ retained as history and do not impose encryption requirements on the foundation.
 
 ## Remaining Work
 
+Current implementation evidence supersedes the older failure notes above:
+
+- Removed active SQLCipher, passphrase/Keystore code and retired proof modules.
+  Historical databases and the temporary release package were left untouched.
+- Fixed the lazy release-task hook and AGP library source-set configuration.
+  The integrated debug, test APKs and signed/shrunk release now build.
+- Room schema v2 is exported. Seven storage tests pass: exact integer/ID roundtrip,
+  integrity and transaction rollback, v1 migration with two reopens, failed migration
+  rollback, corruption file retention, locked storage, temporary failure/retry, and
+  interrupted creation/retry. Tests use unique disposable databases.
+- Four app assertions pass: add/recreate, exact persisted checkpoint after process
+  force-stop, light/dark/2x text with accessible button semantics, and UI error states.
+  All eleven tests ran through separately packaged AndroidJUnitRunner APKs on the
+  explicitly selected OnePlus API 35/4 KB device. Screenshots contain Kochenite only.
+- Six JVM tests pass. Lint: no errors, eleven app and six persistence warnings,
+  concerning pinned versions/API and the deliberate unused debug isolation marker.
+- Permanent RSA-3072 signing identity generated in ignored `.local/signing` with
+  directory mode 700 and files 600. Public certificate is recorded in
+  `docs/release-certificate.sha256`. Off-machine backup is not yet completed.
+- Signed release version 1 runs; add/force-stop/relaunch passes. Both APKs pass
+  signature, ID/SDK/debug isolation, ZIP 16 KB and four Compose native ELF checks.
+  No SQLCipher native libraries remain. Actual 16 KB execution is unverified.
+- Final palette correction, modern Compose test-rule APIs, clean build and signed
+  upgrade verification are in progress. Full spoken TalkBack operation remains
+  unverified; automated semantic labels/actions have been checked.
+
+The original remaining-work checklist below is retained until final verification;
+items 1-3 are implemented and verified, and items 4-6 are substantially complete.
+
 1. Restore a working integrated build: fix release-signing task registration,
    verify the library source-set configuration, remove SQLCipher/key-management
    code and dependencies, and retire active proof modules. Preserve historical
@@ -222,6 +251,6 @@ retained as history and do not impose encryption requirements on the foundation.
    make focused verified commits, close supported exit criteria, and document the
    concrete Phase 2 handoff. Do not begin Phase 2 before Phase 1 is verified.
 
-Next concrete action: implement item 1, then connect and verify the plain Room
-foundation. This planning update requires no app build and does not resolve the
-known working-tree build failure.
+Next concrete action: finish clean-output verification, signed version 1-to-2
+upgrade, screenshot review and current workflow documentation. Then record the
+remaining coverage limits and Phase 2 handoff. Do not begin Phase 2 yet.

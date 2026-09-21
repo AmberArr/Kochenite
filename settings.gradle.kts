@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Kochenite"
-include(":app", ":proof-domain", ":proof-storage", ":proof-ui", ":domain", ":recognition-contract")
+include(":app", ":domain", ":recognition-contract", ":persistence")
