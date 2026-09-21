@@ -159,7 +159,10 @@ of coverage limits. Static native checks do not establish 16 KB runtime support.
   no cache or environment redirection. `:app:lintDebug` passes with version/API,
   unused marker, missing icon and backup-rule warnings documented in
   [the Gradle report](../../../docs/gradle-build.md). IDE sync remains untested.
-- Next concrete action: milestone 2, establish the foundation app/domain/platform/
-  recognition-boundary modules and ViewModel/repository interfaces, followed by
-  and remaining Phase 1 storage/key/recovery/migration/signing work. Do not start
+- Foundation increment: pure domain and deferred recognition boundary added.
+  ViewModel has observable loading/ready/unavailable/recovery states, guarded
+  insertion, retry and repository error propagation. Two domain and four ViewModel
+  JVM tests pass with fakes. Persistence integration is being implemented next.
+- Next concrete action: connect the foundation UI to Keystore-wrapped encrypted
+  storage and complete remaining Phase 1 recovery/migration/signing work. Do not start
   Phase 2; no durable key, financial schema or recognition behavior exists yet.
