@@ -35,8 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import org.jetbrains.compose.resources.stringResource
-import moe.frost.kochenite.proof.ui.resources.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -102,24 +101,24 @@ private fun ProofScreen() {
                 Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text(stringResource(Res.string.app_name), style = MaterialTheme.typography.headlineSmall)
-                Text(stringResource(Res.string.samples), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(Res.string.record_count, records.size), Modifier.testTag("record-count"))
+                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.samples), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.record_count, records.size), Modifier.testTag("record-count"))
                 Button(
                     onClick = { scope.launch { refresh(true) } },
                     enabled = !busy && !failed,
                     modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text(stringResource(Res.string.add_sample)) }
+                ) { Text(stringResource(R.string.add_sample)) }
                 when {
-                    busy -> Text(stringResource(Res.string.loading))
+                    busy -> Text(stringResource(R.string.loading))
                     failed -> {
-                        Text(stringResource(Res.string.storage_error))
+                        Text(stringResource(R.string.storage_error))
                         TextButton(onClick = { scope.launch { refresh(false) } }) {
-                            Text(stringResource(Res.string.retry))
+                            Text(stringResource(R.string.retry))
                         }
                     }
                     else -> LazyColumn(Modifier.testTag("ready"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (records.isEmpty()) item { Text(stringResource(Res.string.empty)) }
+                        if (records.isEmpty()) item { Text(stringResource(R.string.empty)) }
                         itemsIndexed(records, key = { _, record -> record.id }) { index, record ->
                             val formatted = remember(record) {
                                 NumberFormat.getCurrencyInstance().apply {
@@ -130,7 +129,7 @@ private fun ProofScreen() {
                             }
                             Column(Modifier.testTag("sample-row")) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(stringResource(Res.string.sample, index + 1), Modifier.weight(1f))
+                                    Text(stringResource(R.string.sample, index + 1), Modifier.weight(1f))
                                     Text(formatted, style = MaterialTheme.typography.titleMedium)
                                 }
                                 HorizontalDivider(Modifier.padding(top = 12.dp))

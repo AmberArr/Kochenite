@@ -1,7 +1,9 @@
 # Kotlin Toolchain 0.12.2 Proof
 
-Status: bounded proof reached the build-system decision gate. Phase 1 is incomplete;
-the user has not chosen a build system. The `proof-*`/`toolchain-proof` modules are
+Status: historical Toolchain proof, preserved in commit `368ce38`. The user chose
+Gradle on September 22, 2026 (local date); see [the current build](gradle-build.md).
+Commands and paths below describe that proof commit. Phase 1 is incomplete.
+The `proof-*`/`toolchain-proof` modules were
 disposable experiments with a public test database key, not a safe place for
 financial records. Work began 2026-09-21 15:09 UTC; final verification completed
 at 16:35 UTC (86 minutes elapsed, within the four-hour active-engineering budget).
@@ -38,8 +40,8 @@ Retaining Toolchain is possible if the user accepts these constraints, thin app
 modules, manually maintained instrumentation dependencies and clean-build checks.
 This proof does **not** require substituting an in-app test message or ADB harness
 for instrumentation: AndroidJUnitRunner and the Compose assertion actually passed.
-No fallback is selected automatically. The user chooses before further foundation
-implementation, durable key creation, or changes to AGENTS.md.
+The user explicitly selected Gradle after this report. Foundation implementation,
+durable key creation, and the corresponding AGENTS.md update are now authorized.
 
 ## Environment
 
@@ -196,7 +198,7 @@ procedure and actual user-controlled off-machine backup remain after the gate.
 
 ## Next Action
 
-Obtain the user's explicit build-system choice. Then implement the remaining
+The user selected Gradle. Migrate the build and implement the remaining
 [Phase 1 milestones](../.agents/plans/phases/01-foundation.md), including production
 key management, failure preservation, migration/atomicity tests, ViewModels,
 durable signing and upgrade continuity. Phase 2 must not start until all Phase 1

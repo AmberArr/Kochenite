@@ -13,11 +13,11 @@
 
 ## Build and Tooling
 
-- Use native Kotlin and Jetpack Compose with Kotlin Toolchain. Prefer the checked-in `./kotlin` wrapper once it exists; the initial planned Toolchain version is 0.12.2.
-- Run build commands from the workspace root using the tools' default cache settings. Before the wrapper exists, use installed `kotlin`.
+- Use native Kotlin and Jetpack Compose with Gradle Kotlin DSL. The user selected Gradle after the Kotlin Toolchain 0.12.2 proof. Use the pinned `./gradlew` wrapper.
+- Run build commands from the workspace root using the tools' default cache settings and existing host environment.
 - If sandbox permissions or default tool/cache paths block a command, report the exact error and affected path, then ask the user to adjust the configuration or authorize the required access. Do not introduce cache redirection or environment workarounds on your own.
 - Keep caches and generated build output out of Git.
-- Verify relevant tool and library support instead of assuming Gradle-specific integrations work with Kotlin Toolchain.
+- Use standard Android variants and `androidTest` instrumentation. Keep the domain independent of Android; future iOS/Multiplatform targets remain deferred.
 
 ## Android Devices
 

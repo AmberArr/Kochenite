@@ -1,7 +1,7 @@
 # Phase 1: Foundation and Build-System Proof
 
-Status: bounded Toolchain proof verified; awaiting user's build-system decision.
-Phase 1 is incomplete. No foundation implementation beyond the isolated proof is authorized before this gate.
+Status: bounded Toolchain proof and user-approved Gradle migration verified.
+Phase 1 is incomplete. The decision gate is satisfied and remaining implementation is authorized.
 
 ## Scope and Gate
 
@@ -44,7 +44,7 @@ milestones begin. No automatic fallback or implicitly accepted debug harness.
 
 ## Exit Criteria
 
-- [ ] Build-system choice recorded and clean-output debug/release builds repeat.
+- [x] Build-system choice recorded and clean-output proof debug/release builds repeat.
 - [ ] Debug and signed release run on the reference phone.
 - [ ] JVM tests cover validation/exact money, repository errors, ViewModel states.
 - [ ] Encrypted write/read, close/reopen, force-stop/relaunch preserve IDs/values;
@@ -136,7 +136,30 @@ of coverage limits. Static native checks do not establish 16 KB runtime support.
   [proof report](../../../docs/toolchain-proof.md). Recommendation is Gradle for
   remaining work due to cumulative Android module, variant, instrumentation and
   incremental packaging costs. Toolchain remains technically viable with the
-  documented constraints. No build-system choice or migration has been made.
-- Next concrete action: user's explicit build-system choice, then milestone 2
+  documented constraints. The user subsequently selected Gradle.
+- Decision: on September 22, 2026 (local date), the user explicitly approved
+  migration to Gradle after discussing future iOS portability. Keep the domain
+  independent of Android; no iOS targets or Multiplatform migration in this phase.
+- Migration increment: pin Gradle 9.5.0/AGP 9.3.1/Kotlin 2.4.10/KSP 2.3.11,
+  use standard source sets, one app with debug/release variants and androidTest,
+  retain the temporary proof release identity until durable signing is configured.
+  Verify JVM tests, APKs, instrumentation and release journey before expanding.
+- Gradle migration verified: pinned wrapper checksum and JAR match published
+  values; `help`, `build --dry-run`, two JVM tests, debug, standard androidTest and
+  signed R8/resource-shrunk release builds pass. A second build after `clean` also
+  passes. Room/KSP exports the identical v1 schema. Android library manifests and
+  resources now use standard AGP support; no permission-removal workaround needed.
+- Both Gradle-built instrumentation tests pass on the selected OnePlus API 35/
+  4 KB device. Release add/force-stop/relaunch passes. Both APKs pass signature,
+  SDK/package/debug isolation and native alignment checks. Existing proof packages
+  were updated with `install -r`; only the disposable test APK needed `-d` because
+  AGP generates version code 0 versus the prior standalone test APK's 1.
+- Gradle initially failed on its default native lock under
+  `/home/amber/.local/share/gradle` (read-only sandbox). Approved execution works;
+  no cache or environment redirection. `:app:lintDebug` passes with version/API,
+  unused marker, missing icon and backup-rule warnings documented in
+  [the Gradle report](../../../docs/gradle-build.md). IDE sync remains untested.
+- Next concrete action: milestone 2, establish the foundation app/domain/platform/
+  recognition-boundary modules and ViewModel/repository interfaces, followed by
   and remaining Phase 1 storage/key/recovery/migration/signing work. Do not start
   Phase 2; no durable key, financial schema or recognition behavior exists yet.

@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 bounded Toolchain proof reached the decision gate; user's build-system choice pending. Phase 1 is not complete.
+Status: Phase 1 in progress. The user approved migration to Gradle after the bounded Toolchain proof. Phase 1 is not complete.
 
 ## Goal and Agreed Decisions
 
@@ -8,7 +8,7 @@ Build a native, offline-first bookkeeping app for personal use, delivered in usa
 
 Agreed choices:
 
-- Native Kotlin and Jetpack Compose. Prove Kotlin Toolchain 0.12.2 within four hours of active engineering, then present evidence for the user's explicit build-system decision before foundation implementation.
+- Native Kotlin and Jetpack Compose with Gradle Kotlin DSL. The user selected Gradle after reviewing the Kotlin Toolchain 0.12.2 proof and future iOS considerations. Keep domain logic independent of Android; actual iOS/Multiplatform targets remain deferred.
 - A comprehensive everyday-finance product delivered in phases.
 - Local financial storage, with portable backups. Direct Google Drive/OneDrive support can be discussed later.
 - Configurable reporting currency during setup.
@@ -31,9 +31,9 @@ This machine does not support KVM. Do not create or launch an Android emulator. 
 
 At planning time, wireless ADB connected to a OnePlus 6T (`ONEPLUS_A6013`) running Android 15 / API 35. Its observed serial was `adb-a2480128-JKi84V._adb-tls-connect._tcp`; rediscover the current serial with `adb devices -l` in each session and select it explicitly. Do not assume the serial remains stable. Never clear or uninstall the user's Bluecoins app or change its records during reference inspection.
 
-Kotlin Toolchain 0.12.2 is installed. Run build commands from the workspace root using default tool caches and the checked-in wrapper once present. If permissions block a tool/cache path, report the exact error and request required access; do not redirect caches or repurpose environment variables. Keep generated outputs and caches ignored.
+Use the checked-in Gradle 9.5.0 wrapper and Kotlin DSL build from the workspace root with default tool caches. AGP 9.3.1, Kotlin 2.4.10, KSP2 2.3.11 and JDK 21 are verified together. If permissions block a tool/cache path, report the exact error and request required access; do not redirect caches or repurpose environment variables. Keep generated outputs and caches ignored. The prior Toolchain build is preserved in commit `368ce38`.
 
-Toolchain 0.12.2 has built and installed the Compose, Room/KSP2/SQLCipher and signed/shrunk release probes. Two real instrumentation tests and the release add/restart journey passed. The [capability matrix](../../docs/toolchain-proof.md) records commands, integration costs and limits. Recommendation: Gradle for reliable Android variant, library and instrumentation workflows; retaining Toolchain with documented workarounds remains possible. The user must choose; no switch is authorized yet.
+Toolchain 0.12.2 built and installed the Compose, Room/KSP2/SQLCipher and signed/shrunk release probes. The [capability matrix](../../docs/toolchain-proof.md) records commands, integration costs and limits. The user explicitly approved migration to Gradle on September 22, 2026 (local date). Use the pinned Gradle wrapper, standard Android variants and instrumentation for remaining Phase 1 work.
 
 Android CLI 1.0.16261425 and ADB work. Always pass `--no-metrics`. API 36 revision 2 and command-line tools 22.0 are installed; builds use tools 37.0.0 and pinned JDK 21. The user removed conflicting `ANDROID_SDK_HOME` and retained `ANDROID_USER_HOME`; no cache redirection was applied.
 
@@ -150,7 +150,7 @@ Phase 1 proof has started. Complete and verify each phase before moving on; comm
 
 ### Phase 1: Foundation and Toolchain Proof
 
-Status: proof verified; awaiting user's build-system decision before remaining implementation. Detailed deliverables, evidence and exit criteria: [Phase 1 plan](phases/01-foundation.md).
+Status: proof and Gradle migration verified, including repeat clean builds and real instrumentation. Remaining foundation work is incomplete. See [Gradle commands](../../docs/gradle-build.md) and the [Phase 1 plan](phases/01-foundation.md).
 
 - Initialize an isolated pinned Kotlin Toolchain 0.12.2 Compose proof with default caches and appropriate generated-output/secret ignores. Stop at four active hours or earlier decisive evidence and obtain the user's build-system choice.
 - Prove Compose builds, Room generation and migrations, SQLCipher packaging, and deployment to the remote physical phone.
@@ -217,4 +217,4 @@ The initial product is a personal sideloaded Android app with one local book con
 
 ## New-Session Handoff
 
-Read this file, the current detailed phase plan and proof capability matrix. Obtain or honor the user's explicit Toolchain/Gradle choice before remaining Phase 1 implementation. Do not mistake the synthetic proof for the foundation or start Phase 2. Use default caches and explicitly selected physical-device ADB. Run CLI builds sequentially; concurrent builds raced on KSP output. Update phase evidence and make focused Git commits. The recognition demo is supplied; fixture recognition and provider-contract design remain Phase 3 work.
+Read this file and the detailed Phase 1 plan. Gradle migration is verified; continue remaining foundation implementation using `./gradlew`. Do not mistake the synthetic proof for the foundation or start Phase 2. Use default caches and explicitly selected physical-device ADB. Update phase evidence and make focused Git commits. The recognition demo is supplied; fixture recognition and provider-contract design remain Phase 3 work.
