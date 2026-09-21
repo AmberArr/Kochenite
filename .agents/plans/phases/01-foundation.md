@@ -1,7 +1,8 @@
 # Phase 1: Foundation and Build-System Proof
 
-Status: bounded Toolchain proof and user-approved Gradle migration verified.
-Phase 1 is incomplete. The decision gate is satisfied and remaining implementation is authorized.
+Status: bounded Toolchain proof, Gradle migration, and domain/ViewModel increment verified.
+The user selected plain Room/SQLite instead of SQLCipher. Phase 1 is incomplete;
+uncommitted foundation integration still needs implementation cleanup and verification.
 
 ## Scope and Gate
 
@@ -10,7 +11,15 @@ Implement the user-approved Phase 1 plan. Kochenite uses release application ID
 compile/target API 36. Synthetic data only. Shared architecture and scope remain
 in [the master plan](../PLAN.md).
 
-Proof budget: four hours of active engineering, beginning 2026-09-21 15:09 UTC
+Current storage decision: ordinary Room/SQLite in private internal storage.
+Database-level encryption, SQLCipher, passphrase generation/wrapping, database-key
+recovery and encryption-specific tests are removed from scope. Android sandbox
+and device encryption remain the storage protections. Preserve atomic writes,
+migrations, non-destructive failure handling, backup/device-transfer exclusions,
+and unlock-aware access to credential-protected storage. Release signing keys and
+future encrypted exported backups are separate requirements and remain in scope.
+
+Historical proof budget: four hours of active engineering, beginning 2026-09-21 15:09 UTC
 (host clock; local date September 22). Stop earlier on decisive evidence. Use
 documented configuration/public extensions; no binary patches or maintained edits
 to generated Gradle projects. Present commands/results/custom code/uncertainties
@@ -19,24 +28,25 @@ milestones begin. No automatic fallback or implicitly accepted debug harness.
 
 ## Milestones and Implementation
 
-1. Rediscover phone/SDK, scaffold pinned 0.12.2 proof; build/install Compose debug;
+1. Completed historical proof: rediscover phone/SDK, scaffold pinned 0.12.2 proof; build/install Compose debug;
    JVM test; debug/release IDs and source/resource isolation; separate test APK
    with AndroidJUnitRunner and real Compose assertion; Room 2.8.4/KSP2 schema
-   export; maintained SQLCipher encrypted device write/read; temporary-key signed,
-   non-debuggable shrunk release; signature/native packaging verification.
-2. After the decision, establish app, pure Kotlin domain, Android persistence and
+   export; the then-planned encrypted device write/read; temporary-key signed,
+   non-debuggable shrunk release; signature/native packaging verification. The
+   user then selected Gradle; its migration and repeat builds are verified.
+2. Establish app, pure Kotlin domain, Android persistence and
    platform, and unimplemented recognition boundary. Composition root/constructor
    injection, ViewModel/StateFlow, background database work. Sample list/add action,
    loading/empty/error states, externalized strings, light/dark, accessible targets
    and system-bar insets.
 3. Disposable `foundation-proof.db`: stable IDs, integer minor units, currency
    code/scale, UTC timestamps; v2 adds nullable note. Narrow observable/atomic
-   sample repository and key provider; ready/temporarily unavailable/recovery
-   required initialization. Random passphrase wrapped by Keystore AES-GCM,
-   atomically saved before database creation, fresh nonces, no biometric gate.
-   Unlock-aware access; preserve files on missing/invalid keys, authentication,
-   corruption or migration failures. No destructive migration/replacement keys
-   for existing databases. Backup/device-transfer exclusions; no new permissions.
+   sample repository; ready/temporarily unavailable/recovery-required initialization
+   using ordinary Room/SQLite in private internal storage. Unlock-aware access;
+   preserve existing data on corruption, I/O or migration failures. No destructive
+   migration or automatic database deletion/recreation as error recovery.
+   Backup/device-transfer exclusions; no new permissions. Remove the unfinished
+   database-key layer, SQLCipher helper adapter, and encryption-specific tests.
 4. Explicit-serial bounded test runner, sanitized results and repeatable builds.
    Durable password-protected key under ignored `.local/signing`, restricted
    permissions, public fingerprint, encrypted backup/recovery instructions.
@@ -46,18 +56,20 @@ milestones begin. No automatic fallback or implicitly accepted debug harness.
 
 - [x] Build-system choice recorded and clean-output proof debug/release builds repeat.
 - [ ] Debug and signed release run on the reference phone.
-- [ ] JVM tests cover validation/exact money, repository errors, ViewModel states.
-- [ ] Encrypted write/read, close/reopen, force-stop/relaunch preserve IDs/values;
-      ordinary SQLite/wrong key rejected; encrypted integrity check passes.
-- [ ] Multi-write failure rolls back; interrupted key/database creation retries
-      consistently; unavailable/invalid keys do not reset data.
+- [x] Domain/ViewModel increment: six JVM tests cover validation/exact money,
+      repository error propagation and ViewModel states. Rerun after integration.
+- [ ] Plain Room write/read, close/reopen, force-stop/relaunch preserve IDs/values;
+      SQLite integrity check passes.
+- [ ] Multi-write failure rolls back; interrupted database creation retries
+      consistently; unavailable/corrupt storage does not trigger an automatic reset.
 - [ ] Reproducible v1 fixture upgrades to v2 preserving fields and nullable note,
       passes Room validation and second reopen; migration failure preserves files.
 - [ ] Add/recreate/relaunch UI journey, light/dark/large text/TalkBack/system bars;
       runner rejects missing/offline serials/unexpected IDs, times out and returns
       failure on failed assertions, produces machine-readable sanitized results.
-- [ ] Permanent-key signed N to N+1 upgrade retains records and Keystore access.
-- [ ] zipalign, ELF load alignment and apksigner checks pass.
+- [ ] Permanent signing-key N to N+1 upgrade retains records and database access.
+- [ ] zipalign and apksigner pass; ELF alignment passes for any remaining packaged
+      native libraries. SQLCipher-specific packaging assertions are removed.
 - [ ] Secrets/private records excluded; focused verified commits; docs/limitations
       and concrete Phase 2 handoff recorded.
 
@@ -67,6 +79,9 @@ proof requirement; any ADB/debug harness alternative requires explicit acceptanc
 of coverage limits. Static native checks do not establish 16 KB runtime support.
 
 ## Session Evidence and Next Action
+
+The encryption-related results below describe earlier proof builds. They are
+retained as history and do not impose encryption requirements on the foundation.
 
 - Initial master branch has no application code; user-owned untracked `.codex/`
   and `receipt-ai-demo/` preserved.
@@ -163,6 +178,50 @@ of coverage limits. Static native checks do not establish 16 KB runtime support.
   ViewModel has observable loading/ready/unavailable/recovery states, guarded
   insertion, retry and repository error propagation. Two domain and four ViewModel
   JVM tests pass with fakes. Persistence integration is being implemented next.
-- Next concrete action: connect the foundation UI to Keystore-wrapped encrypted
-  storage and complete remaining Phase 1 recovery/migration/signing work. Do not start
-  Phase 2; no durable key, financial schema or recognition behavior exists yet.
+- The subsequent uncommitted integration adds the foundation screen/composition
+  root, backup exclusion XML, and a `persistence` module. Its SQLCipher/Keystore
+  implementation and eleven storage tests are not verified and are superseded
+  by the user's plain Room decision. The old app instrumentation tests were removed
+  during this work; replacement app UI/restart tests remain to be implemented.
+- Latest build failed in `app/build.gradle.kts`: `Task with name 'preReleaseBuild'
+  not found in project ':app'`. The signing guard is registered before AGP creates
+  that task. Earlier persistence attempts also exposed an AGP source-set API cast
+  error; the explicit modern LibraryExtension adjustment is not yet verified.
+- User decision: remove SQLCipher/database-key management from the plan and use
+  plain Room/SQLite. This update changes plans only; implementation files remain
+  untouched pending the next implementation step. No durable release signing key,
+  financial schema or recognition behavior exists yet.
+
+## Remaining Work
+
+1. Restore a working integrated build: fix release-signing task registration,
+   verify the library source-set configuration, remove SQLCipher/key-management
+   code and dependencies, and retire active proof modules. Preserve historical
+   encrypted proof databases; do not reinterpret them as plaintext or silently reset them.
+2. Finish the foundation screen/composition root with the existing domain and
+   ViewModel, plain Room repository and explicit storage states. Verify background
+   database access, resource strings, icon, backup/device-transfer exclusions and
+   absence of camera/notification/storage permissions.
+3. Verify storage: exact values and stable IDs through reopen and process restart,
+   integrity, multi-write rollback, interrupted initialization, unavailable/corrupt
+   storage, v1-to-v2 nullable-note migration, second reopen and failed-migration
+   data retention. Keep reusable tests; remove key/wrong-passphrase/cipher tests.
+4. Restore and adapt the explicit-serial instrumentation/device runner to the
+   foundation packages and tests. Verify add/recreate/force-stop/relaunch, bounded
+   waits, rejected missing/offline devices and unexpected IDs, failing exit codes,
+   and sanitized results. Check light/dark, large text, TalkBack labels and insets.
+5. Create the durable password-protected release signing key under ignored
+   `.local/signing`, restrict permissions, record its public fingerprint, and test
+   signed N-to-N+1 installation without clearing records. Document encrypted key
+   backup/recovery; actual off-machine backup needs a user-controlled destination
+   before real bookkeeping use. Never silently regenerate a missing signing key.
+6. Repeat clean debug/release builds and relevant JVM/device tests; verify R8,
+   signatures, APK alignment and remaining native libraries. Record lint results
+   and untested OS/page-size coverage, including unverified 16 KB runtime behavior.
+7. Update current build/test/release documentation to replace proof-only commands,
+   make focused verified commits, close supported exit criteria, and document the
+   concrete Phase 2 handoff. Do not begin Phase 2 before Phase 1 is verified.
+
+Next concrete action: implement item 1, then connect and verify the plain Room
+foundation. This planning update requires no app build and does not resolve the
+known working-tree build failure.

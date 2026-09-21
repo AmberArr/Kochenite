@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 in progress. The user approved migration to Gradle after the bounded Toolchain proof. Phase 1 is not complete.
+Status: Phase 1 in progress. Gradle migration is verified. The user selected plain Room/SQLite in private internal storage instead of SQLCipher; implementation cleanup and foundation verification remain. Phase 1 is not complete.
 
 ## Goal and Agreed Decisions
 
@@ -11,6 +11,7 @@ Agreed choices:
 - Native Kotlin and Jetpack Compose with Gradle Kotlin DSL. The user selected Gradle after reviewing the Kotlin Toolchain 0.12.2 proof and future iOS considerations. Keep domain logic independent of Android; actual iOS/Multiplatform targets remain deferred.
 - A comprehensive everyday-finance product delivered in phases.
 - Local financial storage, with portable backups. Direct Google Drive/OneDrive support can be discussed later.
+- Use plain Room/SQLite in Android's private internal storage, relying on the app sandbox and device encryption. The user accepted removal of database-level encryption and database-key management. Files obtained outside that protection can be read as ordinary SQLite. Encrypted exported backups remain a later-phase requirement.
 - Configurable reporting currency during setup.
 - Receipt product lines and category splits, not independent nested transactions.
 - Photo capture, gallery images, and shared images for initial receipt recognition.
@@ -96,13 +97,13 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 
 - Separate the Android app, pure Kotlin finance domain, Android persistence/platform services, and recognition contract. Organize features within these modules initially; avoid a module per screen.
 - Use ViewModels, StateFlow, coroutines, repository interfaces, and constructor injection with an explicit composition root.
-- Use Room with KSP2, SQLCipher, DataStore for non-sensitive preferences, and encrypted private attachment files.
+- Use Room with KSP2 and ordinary SQLite in private internal storage, plus DataStore for non-sensitive preferences. Do not introduce SQLCipher or a database passphrase/Keystore wrapping layer. Encrypted private attachment files remain later-phase work.
 - Core entities include accounts, transaction aggregates, account postings, allocations, receipt items, exchange-rate snapshots, drafts, source events, attachments, schedules, budgets, and import batches. Use stable identifiers for references and deduplication.
 - A single transactional posting service validates and writes each aggregate. Editing updates its postings and allocations atomically. Maintain revision history.
 - Trash excludes records from calculations and supports restoration. Editing reconciled records requires confirmation and renewed reconciliation.
 - Use CameraX for capture, Photo Picker/share intents for images, WorkManager for durable recognition/retry and maintenance, and NotificationListenerService for explicitly selected sources.
 - Keep financial arithmetic and notification parsing independent of Android for JVM testing.
-- Protect encryption keys with Android Keystore. Optional biometric/device-credential app lock protects the UI independently of background capture. Exclude financial data and credentials from automatic OS backup; background work must tolerate keys being unavailable before device unlock.
+- No database encryption key is required. Any later attachment-key protection is designed with that feature. Optional biometric/device-credential app lock protects the UI independently of background capture. Exclude financial data and credentials from automatic OS backup and device transfer; storage/background work must tolerate credential-protected storage being unavailable before device unlock.
 - Avoid receipt content, notification bodies, credentials, and financial records in diagnostic logs. Keep logs local unless the user deliberately exports sanitized diagnostics.
 - Defaults: working name Kochenite, minimum Android API 26, initial compile/target API 36, English UI with externalized strings and locale-aware formatting. Support Unicode receipt content. Initial recognition fixtures cover English, Japanese, and Traditional Chinese; no specific receipt language was selected by the user.
 
@@ -150,16 +151,16 @@ Phase 1 proof has started. Complete and verify each phase before moving on; comm
 
 ### Phase 1: Foundation and Toolchain Proof
 
-Status: proof and Gradle migration verified, including repeat clean builds and real instrumentation. Remaining foundation work is incomplete. See [Gradle commands](../../docs/gradle-build.md) and the [Phase 1 plan](phases/01-foundation.md).
+Status: proof and Gradle migration verified, including repeat clean builds and real instrumentation. Domain/ViewModel tests pass. Plain Room storage, integrated UI, device tests and durable release workflow remain incomplete. The uncommitted foundation currently has a Gradle task-registration failure. See [Gradle commands](../../docs/gradle-build.md) for the verified migration milestone and the [Phase 1 plan](phases/01-foundation.md) for current work.
 
 - Initialize an isolated pinned Kotlin Toolchain 0.12.2 Compose proof with default caches and appropriate generated-output/secret ignores. Stop at four active hours or earlier decisive evidence and obtain the user's build-system choice.
-- Prove Compose builds, Room generation and migrations, SQLCipher packaging, and deployment to the remote physical phone.
-- Prove release APK creation/signing and upgrade continuity; keep signing credentials and keys outside Git. Check encrypted native-library packaging compatibility, including modern page-size requirements.
+- Finish Compose integration, Room generation and plain SQLite migrations, and deployment to the remote physical phone. Remove SQLCipher and database-key code/dependencies from the active foundation.
+- Prove release APK creation/signing and upgrade continuity; keep signing credentials and keys outside Git. Check packaging compatibility for any native libraries still shipped, including modern page-size requirements.
 - Establish JVM tests and a repeatable physical-device journey runner. Verify Android instrumentation support early. If substantial unsupported build integration is required, explain the blocker to the user before considering a Gradle switch.
 - Document build, test, explicit device selection, installation, log collection, screenshots, and local-service tunneling. Do not create an emulator.
 - IDs: release `moe.frost.kochenite`, debug `moe.frost.kochenite.debug`; disposable `foundation-proof.db` stays separate from Phase 2 finance schema. Durable signing key is created only after the build decision, under ignored `.local/signing`.
-- The proof uses `toolchain-probe.db` and temporary release ID `moe.frost.kochenite.debug.releaseproof`, preserving the permanent identity for its durable key. SQLCipher 4.17.0/SQLite 2.6.2 preserve API 36; SQLCipher 4.19.0 requires compile API 37. Reassess versions after the build choice without silently changing SDK requirements.
-- Exit: all detailed Phase 1 criteria have evidence, including encrypted persistence/restart/atomicity/migration, signed release upgrade, repeatable device tests and static native checks. API 35/4 KB phone coverage does not establish other OS or 16 KB runtime support.
+- The historical proof used encrypted `toolchain-probe.db` and temporary release ID `moe.frost.kochenite.debug.releaseproof`. Its SQLCipher results remain historical evidence, not a dependency or acceptance requirement for the selected plain Room foundation. Preserve the permanent identity for its durable signing key.
+- Exit: all detailed Phase 1 criteria have evidence, including plain Room persistence/restart/atomicity/migration, non-destructive failure handling, signed release upgrade, repeatable device tests and applicable static native checks. API 35/4 KB phone coverage does not establish other OS or 16 KB runtime support.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
@@ -197,7 +198,7 @@ Status: not started.
 
 Status: not started.
 
-- Validate release shrinking, encrypted database compatibility, signing-key continuity, backup recovery, accessibility, permission denial, offline behavior, and long-term data performance.
+- Validate release shrinking, Room/SQLite compatibility, signing-key continuity, encrypted portable-backup recovery, accessibility, permission denial, offline behavior, and long-term data performance.
 - Produce a signed sideloadable APK and repeatable build/deploy/backup instructions.
 - Exit: release-build daily-use journeys and restoration tests pass on the reference device, with outstanding limitations explicitly documented.
 
@@ -205,7 +206,7 @@ Status: not started.
 
 - Finance: zero-, two-, and three-decimal currencies; fractional quantities; tax-inclusive/exclusive receipts; discounts/rounding; cross-currency transfers and fees; refunds; card repayments; stable historical rates; atomic edit/delete/restore; budget rollover; partial debt settlement.
 - Extraction: ambiguous currencies/dates, unreadable images, inconsistent totals, duplicate notification updates, identical legitimate purchases, receipt/notification matching, template precedence, adversarial pattern inputs, timeout/retry/cancel, and process death around response persistence.
-- Storage: every schema migration, interrupted writes, corrupt/truncated backups, incorrect passphrases, attachment checksums, low storage, failed restore without data loss, and successful restoration on a fresh app installation. Use only this app's test data for destructive recovery scenarios.
+- Storage: every schema migration, interrupted writes, corrupt/truncated backups, incorrect backup passphrases, attachment checksums, low storage, failed restore without data loss, and successful restoration on a fresh app installation. Use only this app's test data for destructive recovery scenarios.
 - Device: capture, review, posting, reporting, and restoration journeys via explicitly selected wireless ADB. Check rotation, large text, dark mode, keyboard/system-bar overlap, permission revocation, and background restrictions.
 - Adaptive UI: use host rendering tests where supported for other sizes; clearly distinguish rendering checks from physical-device coverage. Do not claim untested phones/tablets were verified.
 - Performance: benchmark synthetic 50,000-transaction data on the reference phone. Target ordinary saves below 300 ms and indexed searches below 500 ms after warm-up. Keep database work and image processing off the main thread.
@@ -217,4 +218,4 @@ The initial product is a personal sideloaded Android app with one local book con
 
 ## New-Session Handoff
 
-Read this file and the detailed Phase 1 plan. Gradle migration is verified; continue remaining foundation implementation using `./gradlew`. Do not mistake the synthetic proof for the foundation or start Phase 2. Use default caches and explicitly selected physical-device ADB. Update phase evidence and make focused Git commits. The recognition demo is supplied; fixture recognition and provider-contract design remain Phase 3 work.
+Read this file and the detailed Phase 1 plan. Gradle migration is verified. The user selected plain Room/SQLite; remove the uncommitted SQLCipher/database-key implementation and its encryption-specific tests, fix the current Gradle task-registration failure, then verify the integrated foundation using `./gradlew`. Preserve transaction, migration, corruption/file-retention and backup-exclusion requirements. Release signing and encrypted portable backups are separate from database encryption and remain required. Do not start Phase 2. Use default caches and explicitly selected physical-device ADB, update phase evidence, and make focused commits. Recognition fixtures and provider-contract design remain Phase 3 work.
