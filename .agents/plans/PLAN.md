@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 has not started. Off-machine signing backup is still required before real bookkeeping use.
+Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 is in progress; milestone 2.0 records the revised scope and 2.1 establishes the financial kernel. Off-machine signing backup is still required before real bookkeeping use.
 
 ## Goal and Agreed Decisions
 
@@ -11,8 +11,8 @@ Agreed choices:
 - Native Kotlin and Jetpack Compose with Gradle Kotlin DSL. The user selected Gradle after reviewing the Kotlin Toolchain 0.12.2 proof and future iOS considerations. Keep domain logic independent of Android; actual iOS/Multiplatform targets remain deferred.
 - A comprehensive everyday-finance product delivered in phases.
 - Local financial storage, with portable backups. Direct Google Drive/OneDrive support can be discussed later.
-- Use plain Room/SQLite in Android's private internal storage, relying on the app sandbox and device encryption. The user accepted removal of database-level encryption and database-key management. Files obtained outside that protection can be read as ordinary SQLite. Encrypted exported backups remain a later-phase requirement.
-- Configurable reporting currency during setup.
+- Use plain Room/SQLite in Android's private internal storage, relying on the app sandbox and device encryption. The user accepted removal of database-level encryption and database-key management. Files obtained outside that protection can be read as ordinary SQLite. Phase 2 exports consistent plain SQLite backups; encryption and automatic backups are deferred.
+- Freely changeable dashboard display currency; authoritative balances and historical reports remain separated by account currency.
 - Receipt product lines and category splits, not independent nested transactions.
 - Photo capture, gallery images, and shared images for initial receipt recognition.
 - Configurable notification sources, conservative default templates, and user-editable templates with previews.
@@ -58,27 +58,26 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 ### Accounts and Transactions
 
 - Support cash, bank, savings, credit cards, e-wallets, assets, loans, and receivables. Include account groups, opening balances, archival, reconciliation, and inclusion/exclusion from net worth.
-- Each account has one fixed currency. Group separate currency accounts under one institution. Prevent changing an account's currency once it has postings.
+- Accounts are generic signed-balance containers; type is descriptive only. Each has one authoritative currency, permanently locked after its first posting even if purged. Archival preserves balances/history and net-worth inclusion. Lending and repayment are ordinary transfers to/from a receivable account.
 - Support income, expenses, transfers, refunds, and explicit balance adjustments.
 - Transactions include merchant/payee, date, account, categories, tags, notes, attachments, and cleared/reconciled status. Include copying, saved templates, search, filters, and bulk categorization.
 - Transfers and credit-card repayments move balances without becoming income or expenses. Fees and interest are separate expenses.
 
 ### Currencies and Financial Correctness
 
-- Choose the reporting currency during setup. Preserve original transaction currency, actual account-currency amount, and historical conversion snapshots.
+- Preserve actual account-currency amounts and optional merchant amount/currency. Unknown actual amounts remain incomplete and excluded from balances/spending. Transfers with either side unknown remain wholly incomplete. Calendar date and local time are required; no transaction timezone is stored; future entries remain drafts.
 - Cross-currency transfers record actual sent and received amounts, with fees recorded separately. Do not require nominal amounts in different currencies to sum to zero.
 - Store finalized monetary amounts as integer minor units with currency metadata. Use decimal arithmetic for quantities, unit prices, and exchange rates. Never use floating-point arithmetic for money.
-- Historical spending uses saved conversion snapshots. Current net worth uses separately dated valuation rates. Missing rates must remain visibly unresolved, not silently assumed.
-- Manual exchange rates work offline. Keep an optional dated rate-provider adapter for later automatic suggestions.
+- Historical reports use authoritative amounts grouped by account currency, without historical display-currency conversion. Overview estimates current net worth and month-to-date income/spending/net flow only.
+- Current estimates use a replaceable HTTPS Frankfurter adapter, common-base rates cached for 24 hours after successful fetch, and manual pair overrides with consistent reciprocals. Keep fetch time separate from provider date, retain stale cache on failure, expose automatic/manual/stale status and omitted currencies, and provide explicit refresh. Send no financial records to the service.
 - Account postings determine balances. Category allocations determine spending. Receipt lines explain allocations; they are not additional transactions.
 - Refunds link to original purchases and reduce spending in the refund posting period. Balance adjustments do not silently appear as earned income or ordinary expenses.
 
 ### Receipt Subitems
 
-- Track product descriptions, decimal quantities, unit prices, line amounts, discounts, tax, and category allocations.
-- Support tax-inclusive receipts and receipt-level discounts, tax, tips, or other adjustments without counting included tax twice.
-- Allocate shared adjustments deterministically and expose rounding residuals. Require item/allocation totals to reconcile before posting; permit an explicit user-reviewed adjustment for unexplained differences.
-- Permit category splits without product-level detail. A simple transaction is the same model with a single allocation.
+- Phase 2 supports category splits and optional receipt descriptions, final tax-inclusive line totals, and categories. Allocations at either of two category levels are allowed; parent reports include direct and child allocations once.
+- Merchant line amounts reconcile exactly with the merchant receipt total. Foreign receipt lines allocate the actual account charge proportionally using stable largest-remainder rounding, with review/correction of account allocations.
+- Require correction of mismatches; never infer tax or insert balancing adjustments. Quantities, unit prices, tax models, discounts, coupons, points and allocation shortcuts are deferred to recognition planning without placeholder models.
 
 ### Everyday Finance
 
@@ -92,14 +91,15 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 
 - Generic CSV import includes column mapping, date/locale/currency selection, preview, validation, duplicate warnings, atomic batches, and undo.
 - Export transactions and subitems separately as CSV. CSV is not the full backup format.
-- Full portable backups include all relationships, settings needed to interpret records, attachments, schema version, and integrity checksums. Exclude credentials and device-bound keys.
-- Encrypt portable backups using a user passphrase and maintained cryptographic libraries. Do not implement cryptographic primitives manually.
-- Restore into temporary storage, validate and migrate, then replace active data only after successful checks and a pre-restore backup. Failed restores must leave the original data usable.
+- Phase 2 manual backup exports one consistent plain SQLite snapshot containing all financial Room data, including drafts, trash, templates, settings and rate data; exclude foundation samples, signing keys, credentials and device permissions. Optional in-app reminders default to seven days.
+- Flush acknowledged drafts, pause mutations, checkpoint and close before staging the main database file; reopen normal storage, validate the snapshot and report success only after destination close.
+- Restore stages and migrates the selected file, validates schema/integrity/foreign keys/financial invariants, previews replacement and requires explicit confirmation. Import validated application-table contents in one transaction while retaining installed Room metadata; validate before commit and reset editors after success. Failure/cancellation before commit preserves current data. No mandatory pre-restore export, custom archive, encryption, generation switch or scheduler.
+- An unreadable active database is preserved and surfaces recovery-required; automatic salvage is outside scope. Signing-key backup is separate and still required before real use.
 - Initially use Android Storage Access Framework for file export/import. Direct Drive/OneDrive integration and synchronization semantics are deferred.
 
 ## User Experience
 
-- Five primary destinations: Overview, Transactions, Accounts, Inbox, and Reports. Overview exposes budgets, bills, and goals; settings contains categories, templates, backups, and recognition configuration.
+- Phase 2 has four primary destinations: Overview, Transactions, Accounts, and Reports. Inbox is deferred to capture phases. Overview exposes budgets, bills, and goals; settings contains categories, templates, backups, and recognition configuration.
 - Persistent add action, amount-first transaction entry, recent selections, and autosaved drafts. Preserve filters, scroll positions, and unsaved work across navigation and process recreation.
 - Material 3 with neutral light/dark surfaces, restrained teal accents, distinct chart colors, system typography, aligned monetary columns, and compact readable lists.
 - Use accessible icons, 48dp touch targets, text scaling, TalkBack semantics, edge-to-edge insets, keyboard-safe forms, and predictable back navigation. Do not rely on color alone.
@@ -112,8 +112,8 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 - Use ViewModels, StateFlow, coroutines, repository interfaces, and constructor injection with an explicit composition root.
 - Use Room with KSP2 and ordinary SQLite in private internal storage, plus DataStore for non-sensitive preferences. Do not introduce SQLCipher or a database passphrase/Keystore wrapping layer. Encrypted private attachment files remain later-phase work.
 - Core entities include accounts, transaction aggregates, account postings, allocations, receipt items, exchange-rate snapshots, drafts, source events, attachments, schedules, budgets, and import batches. Use stable identifiers for references and deduplication.
-- A single transactional posting service validates and writes each aggregate. Editing updates its postings and allocations atomically. Maintain revision history.
-- Trash excludes records from calculations and supports restoration. Editing reconciled records requires confirmation and renewed reconciliation.
+- A single transactional posting service validates and writes each aggregate. Editing updates its postings and allocations atomically. Replace the current aggregate atomically; no revision history or version restoration. Durable edit drafts keep the original effective until successful replacement and compare the starting record within the write transaction to reject stale edits.
+- Trash excludes records from calculations and supports manual restoration/permanent purge, with no automatic purge. Purging a purchase detaches surviving refunds without changing their amounts. Editing reconciled records requires confirmation and renewed reconciliation.
 - Use CameraX for capture, Photo Picker/share intents for images, WorkManager for durable recognition/retry and maintenance, and NotificationListenerService for explicitly selected sources.
 - Keep financial arithmetic and notification parsing independent of Android for JVM testing.
 - No database encryption key is required. Any later attachment-key protection is designed with that feature. Optional biometric/device-credential app lock protects the UI independently of background capture. Exclude financial data and credentials from automatic OS backup and device transfer; storage/background work must tolerate credential-protected storage being unavailable before device unlock.
@@ -180,11 +180,12 @@ results. Off-machine signing backup remains required before real use.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
-Status: not started.
+Status: in progress. See the [detailed milestones](phases/02-manual-bookkeeping.md),
+[financial examples](../../docs/financial-rules.md) and [worklog](../worklogs/02-manual-bookkeeping.md).
 
-- Deliver setup, accounts, categories, manual transactions, transfers, currencies, subitems, search, editing/trash, basic reports, and encrypted backup/restore.
-- Establish the financial invariants before adding automation, including exact allocation totals and authoritative account postings.
-- Exit: daily bookkeeping works entirely offline; backup restoration reproduces balances, relationships, and attachments.
+- Deliver milestones 2.0–2.9 in order: decisions, kernel/storage, setup/accounts/categories, basic entry/drafts/trash, transfers/incomplete/refunds, receipt lines/splits, search/tags/templates/bulk categories, reports/rates, plain SQLite backup/restore, release validation.
+- Deferred from this phase: attachments/acquisition, recognition, tax shortcuts and persistent tax/quantity/unit-price models, discounts/coupons/points, reconciliation, budgets/schedules, specialized debts, CSV, merchant/tag summary reports, historical balance charts, encrypted/automatic backups, transaction history, automatic purge and biometric lock.
+- Exit: verified offline manual ledger, exact calculations, durable drafts, safe plain SQLite recovery, physical-device/release upgrade/performance evidence and off-machine signing-key recovery check. Synthetic data only until that gate passes.
 
 ### Phase 3: Receipt Capture
 
@@ -214,7 +215,7 @@ Status: not started.
 
 Status: not started.
 
-- Validate release shrinking, Room/SQLite compatibility, signing-key continuity, encrypted portable-backup recovery, accessibility, permission denial, offline behavior, and long-term data performance.
+- Validate release shrinking, Room/SQLite compatibility, signing-key continuity, portable-backup recovery, accessibility, permission denial, offline behavior, and long-term data performance.
 - Produce a signed sideloadable APK and repeatable build/deploy/backup instructions.
 - Exit: release-build daily-use journeys and restoration tests pass on the reference device, with outstanding limitations explicitly documented.
 
@@ -234,4 +235,10 @@ The initial product is a personal sideloaded Android app with one local book con
 
 ## New-Session Handoff
 
-Read this file, the completed Phase 1 plan and the latest entries in its worklog. The plain Room foundation is complete. Phase 2 has not started; when authorized, write its detailed plan and begin with the separate financial schema/posting invariants. Reuse the build, storage-failure handling, instrumentation and signing workflow. Keep the sample database separate. Restore the existing signing identity when needed; never regenerate it. Off-machine encrypted signing backup needs a user-controlled destination and recovery check before real bookkeeping use. Recognition fixtures and provider-contract design remain Phase 3 work.
+Read this file, the Phase 2 plan and its latest worklog entries. Continue the next
+incomplete milestone in order and verify its exit criteria before the next.
+Reuse the separate foundation's build, preserving storage factory, instrumentation
+and signing workflow; never migrate `foundation-proof.db` into financial storage.
+Preserve unrelated user files and the existing signing identity. Off-machine
+signing-key backup and recovery remain required before real use. Recognition
+fixtures and provider-contract design remain Phase 3 work.
