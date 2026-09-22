@@ -124,6 +124,8 @@ verified commits and keep dated results only in the worklog.
 ## Current status and next action
 
 - 2.0: complete; [decision/example evidence](../../worklogs/02-manual-bookkeeping.md#milestone-20).
-- 2.1: in progress. 2.2–2.9: pending; no exit evidence claimed yet.
+- 2.1: complete; [kernel/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-21--september-23-2026).
+- 2.2–2.9: pending. App still displays foundation samples; financial UI is not integrated.
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
-- Next: implement/test the financial kernel and separate Room storage (2.1).
+- Next: implement setup, typed navigation, account/group/category management and
+  atomic opening/adjustment workflows (2.2), then verify recreation and references.
