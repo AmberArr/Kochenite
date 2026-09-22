@@ -36,6 +36,9 @@ data class Account(
     val archived: Boolean = false,
     val includeInNetWorth: Boolean = true,
     val currencyLocked: Boolean = false,
+    val groupId: String? = null,
+    val type: String = "",
+    val position: Int = 0,
 )
 
 data class Category(
@@ -219,6 +222,13 @@ data class LedgerCursor(
 data class LedgerPage(
     val entries: List<SavedEntry>,
     val next: LedgerCursor?,
+)
+
+data class CategoryTotal(
+    val rootCategoryId: String?,
+    val kind: CategoryKind,
+    val currency: BookCurrency,
+    val amountMinor: Long,
 )
 
 data class CurrencyTotals(

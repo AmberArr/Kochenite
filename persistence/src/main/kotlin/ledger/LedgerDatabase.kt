@@ -20,7 +20,26 @@ import moe.frost.kochenite.domain.ledger.Category
 import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.persistence.PreservingSQLiteFactory
 
-@Entity(tableName = "accounts", indices = [Index("currency")])
+@Entity(tableName = "account_groups")
+internal data class AccountGroupRow(
+    @PrimaryKey val id: String,
+    val name: String,
+    val position: Int,
+)
+
+@Entity(tableName = "book_settings")
+internal data class BookSettingsRow(
+    @PrimaryKey val id: Int = 1,
+    val displayCurrency: String,
+    val displayScale: Int,
+    val setupComplete: Boolean,
+)
+
+@Entity(
+    tableName = "accounts",
+    foreignKeys = [ForeignKey(entity = AccountGroupRow::class, parentColumns = ["id"], childColumns = ["groupId"])],
+    indices = [Index("currency"), Index("groupId")],
+)
 internal data class AccountRow(
     @PrimaryKey val id: String,
     val name: String,
@@ -29,8 +48,11 @@ internal data class AccountRow(
     val archived: Boolean,
     val includeInNetWorth: Boolean,
     val currencyLocked: Boolean,
+    val groupId: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "''") val type: String = "",
+    @androidx.room.ColumnInfo(defaultValue = "0") val position: Int = 0,
 ) {
-    fun model() = Account(id, name, BookCurrency(currency, scale), archived, includeInNetWorth, currencyLocked)
+    fun model() = Account(id, name, BookCurrency(currency, scale), archived, includeInNetWorth, currencyLocked, groupId, type, position)
 }
 
 @Entity(
@@ -131,11 +153,39 @@ internal data class TotalRow(
     val refundMinor: Long,
 )
 
+internal data class CategoryTotalRow(
+    val rootId: String?,
+    val kind: String,
+    val currency: String,
+    val scale: Int,
+    val amountMinor: Long,
+)
+
 @Dao
 internal interface LedgerDao {
+    @androidx.room.Update suspend fun updateAccount(row: AccountRow)
+
+    @Query("SELECT * FROM account_groups ORDER BY position, id")
+    suspend fun groups(): List<AccountGroupRow>
+
+    @Insert suspend fun insertGroup(row: AccountGroupRow)
+
+    @androidx.room.Update suspend fun updateGroup(row: AccountGroupRow)
+
+    @androidx.room.Update suspend fun updateCategory(row: CategoryRow)
+
+    @Query("SELECT count(*) FROM allocations WHERE categoryId = :id")
+    suspend fun categoryUses(id: String): Int
+
+    @Query("SELECT * FROM book_settings WHERE id = 1")
+    suspend fun settings(): BookSettingsRow?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveSettings(row: BookSettingsRow)
+
     @Insert suspend fun insertAccount(row: AccountRow)
 
-    @Query("SELECT * FROM accounts ORDER BY id")
+    @Query("SELECT * FROM accounts ORDER BY position, id")
     suspend fun accounts(): List<AccountRow>
 
     @Query("UPDATE accounts SET currencyLocked = 1 WHERE id = :id")
@@ -189,6 +239,21 @@ internal interface LedgerDao {
         end: String,
     ): List<TotalRow>
 
+    @Query(
+        """SELECT COALESCE(c.parentId, c.id) AS rootId,
+        CASE WHEN e.kind = 'INCOME' THEN 'INCOME' ELSE 'EXPENSE' END AS kind,
+        a.currency, a.scale,
+        SUM(CASE WHEN e.kind = 'REFUND' THEN -al.amountMinor ELSE al.amountMinor END) AS amountMinor
+        FROM allocations al JOIN entries e ON e.id = al.entryId
+        JOIN accounts a ON a.id = e.accountId LEFT JOIN categories c ON c.id = al.categoryId
+        WHERE e.status = 'POSTED' AND e.date BETWEEN :start AND :end
+        GROUP BY rootId, CASE WHEN e.kind = 'INCOME' THEN 'INCOME' ELSE 'EXPENSE' END, a.currency, a.scale""",
+    )
+    suspend fun categoryTotals(
+        start: String,
+        end: String,
+    ): List<CategoryTotalRow>
+
     @Insert suspend fun insertDraft(row: DraftRow)
 
     @androidx.room.Update suspend fun updateDraft(row: DraftRow)
@@ -212,8 +277,11 @@ internal interface LedgerDao {
 }
 
 @Database(
-    entities = [AccountRow::class, CategoryRow::class, EntryRow::class, PostingRow::class, AllocationRow::class, DraftRow::class],
-    version = 2,
+    entities = [
+        AccountGroupRow::class, BookSettingsRow::class, AccountRow::class, CategoryRow::class,
+        EntryRow::class, PostingRow::class, AllocationRow::class, DraftRow::class,
+    ],
+    version = 3,
     exportSchema = true,
 )
 internal abstract class LedgerDatabase : RoomDatabase() {
@@ -227,12 +295,28 @@ internal fun ledgerDatabase(
     Room
         .databaseBuilder(context, LedgerDatabase::class.java, name)
         .openHelperFactory(PreservingSQLiteFactory())
-        .addMigrations(ledgerMigration1To2)
+        .addMigrations(ledgerMigration1To2, ledgerMigration2To3)
         .build()
 
 internal val ledgerMigration1To2 =
     object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE entries ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+internal val ledgerMigration2To3 =
+    object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS account_groups (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL)",
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS book_settings (id INTEGER NOT NULL PRIMARY KEY, displayCurrency TEXT NOT NULL, displayScale INTEGER NOT NULL, setupComplete INTEGER NOT NULL)",
+            )
+            db.execSQL("ALTER TABLE accounts ADD COLUMN groupId TEXT REFERENCES account_groups(id)")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN type TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE accounts ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_accounts_groupId ON accounts(groupId)")
         }
     }

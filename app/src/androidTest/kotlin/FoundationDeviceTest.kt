@@ -22,7 +22,7 @@ import org.junit.Test
 import java.io.File
 
 class FoundationDeviceTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createAndroidComposeRule<FoundationProofActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val checkpoint get() = File(context.noBackupFilesDir, "instrumentation-snapshot.json")
 

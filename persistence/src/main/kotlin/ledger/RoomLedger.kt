@@ -10,6 +10,8 @@ import kotlinx.coroutines.CancellationException
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.Allocation
 import moe.frost.kochenite.domain.ledger.BookCurrency
+import moe.frost.kochenite.domain.ledger.CategoryKind
+import moe.frost.kochenite.domain.ledger.CategoryTotal
 import moe.frost.kochenite.domain.ledger.CurrencyTotals
 import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryInput
@@ -31,7 +33,7 @@ import java.time.LocalTime
 import java.util.UUID
 
 /** Used inside a transaction to reject after a write while still rolling everything back. */
-private class Rejected(
+internal class Rejected(
     val result: LedgerResult<Nothing>,
 ) : RuntimeException()
 
@@ -71,6 +73,9 @@ class RoomLedger internal constructor(
     private val afterWrite: () -> Unit = {},
 ) : PostingService {
     private val dao = db.ledger()
+    val accountRepository: moe.frost.kochenite.domain.ledger.AccountRepository = RoomAccounts(db, this)
+    val categoryRepository: moe.frost.kochenite.domain.ledger.CategoryRepository = RoomCategories(db)
+    val settingsRepository: moe.frost.kochenite.domain.ledger.SettingsRepository = RoomSettings(db, this)
 
     private fun token() = UUID.randomUUID().toString()
 
@@ -100,6 +105,9 @@ class RoomLedger internal constructor(
                         account.archived,
                         account.includeInNetWorth,
                         false,
+                        account.groupId,
+                        account.type,
+                        account.position,
                     ),
                 )
                 account
@@ -125,6 +133,17 @@ class RoomLedger internal constructor(
                 val total = CurrencyTotals(BookCurrency(it.currency, it.scale), it.incomeMinor, spending)
                 total.netFlowMinor // Validate the representability of the derived total.
                 total
+            }
+        }
+
+    suspend fun categoryTotals(
+        start: LocalDate,
+        end: LocalDate,
+    ): LedgerResult<List<CategoryTotal>> =
+        storageResult {
+            if (start > end) invalid(InvalidReason.STATE)
+            dao.categoryTotals(start.toString(), end.toString()).map {
+                CategoryTotal(it.rootId, CategoryKind.valueOf(it.kind), BookCurrency(it.currency, it.scale), it.amountMinor)
             }
         }
 

@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 val releaseSigningFile = rootProject.file(".local/signing/keystore.properties")
@@ -55,6 +56,8 @@ android {
 }
 dependencies {
     implementation(project(":domain"))
+    implementation("androidx.navigation:navigation-compose:2.9.8")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.activity:activity-compose:1.13.0")

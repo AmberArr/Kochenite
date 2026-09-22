@@ -44,6 +44,18 @@ verified commits and keep dated results only in the worklog.
 - Exit: positive/zero/negative opening balances; saved navigation survives recreation;
   account/category editing cannot invalidate historical references.
 
+### 2.2 implementation sequence
+
+1. Add focused account/category/settings repositories and schema v3 for groups,
+   ordering, optional account type and singleton display settings. Test v2 migration.
+2. Create accounts and opening postings atomically through the posting boundary;
+   enforce permanent currency locks and safe two-level category/reference edits.
+3. Introduce serialized ID routes with Navigation Compose, saved navigation/forms,
+   ViewModel state, offline setup and the four primary destinations. Reuse the
+   existing palette and 48dp controls; use rail/list-detail on wider windows.
+4. Add setup/account/category instrumentation including recreation and signed
+   balances. Preserve sample storage as a separate diagnostic foundation.
+
 ## 2.3 — Basic entry, drafts, editing and trash
 
 - Amount-first expense/income with account, merchant/payee, date/time, category, notes.
@@ -125,7 +137,9 @@ verified commits and keep dated results only in the worklog.
 
 - 2.0: complete; [decision/example evidence](../../worklogs/02-manual-bookkeeping.md#milestone-20).
 - 2.1: complete; [kernel/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-21--september-23-2026).
-- 2.2–2.9: pending. App still displays foundation samples; financial UI is not integrated.
+- 2.2: complete; [setup/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-22--september-23-2026).
+- 2.3: in progress. 2.4–2.9: pending.
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
-- Next: implement setup, typed navigation, account/group/category management and
-  atomic opening/adjustment workflows (2.2), then verify recreation and references.
+- Next: add a Room-backed transaction editor with stable draft IDs, autosaved raw
+  input, visible save status and Back flushing; then entry details, edit drafts and
+  trash/restore/purge. Verify process recreation, failures and exact totals.

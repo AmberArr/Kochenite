@@ -316,7 +316,7 @@ class FinancialStorageDeviceTest {
                         LedgerDatabase::class.java,
                         name,
                     ).openHelperFactory(PreservingSQLiteFactory())
-                    .addMigrations(broken)
+                    .addMigrations(broken, ledgerMigration2To3)
                     .build()
             try {
                 candidate.openHelper.writableDatabase

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { completedTests } from './instrumentation-result.mjs';
 
 const serial = process.argv[2];
+const ui = process.argv[3] === '--ui';
 const testPackage = 'moe.frost.kochenite.debug.storage.test';
 const runner = `${testPackage}/androidx.test.runner.AndroidJUnitRunner`;
 const directory = fileURLToPath(new URL('../.local/financial-evidence/', import.meta.url));
@@ -18,8 +19,8 @@ function adb(args, timeout = 15_000) {
 }
 
 try {
-  if (!serial || process.argv.length !== 3 || serial.startsWith('-') || /\s/.test(serial)) {
-    throw new Error('Usage: node scripts/run-financial-tests.mjs EXPLICIT_DEVICE_SERIAL');
+  if (!serial || (process.argv.length !== 3 && !(process.argv.length === 4 && ui)) || serial.startsWith('-') || /\s/.test(serial)) {
+    throw new Error('Usage: node scripts/run-financial-tests.mjs EXPLICIT_DEVICE_SERIAL [--ui]');
   }
   result.stage = 'device';
   if (adb(['get-state']) !== 'device') throw new Error('Device is not online');
@@ -34,6 +35,21 @@ try {
   const output = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.FinancialStorageDeviceTest', runner], 120_000);
   result.completedTests = completedTests(output, 12);
+  result.stage = 'book-setup';
+  const setupOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+    'moe.frost.kochenite.persistence.ledger.BookSetupDeviceTest', runner], 120_000);
+  result.completedTests += completedTests(setupOutput, 5);
+  if (ui) {
+    result.stage = 'book-ui';
+    const app = 'moe.frost.kochenite.debug';
+    const uiRunner = `${app}.test/androidx.test.runner.AndroidJUnitRunner`;
+    if (!adb(['shell', 'pm', 'list', 'instrumentation']).split('\n')
+      .includes(`instrumentation:${uiRunner} (target=${app})`)) throw new Error('Unexpected UI instrumentation target');
+    adb(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
+    const uiOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+      'moe.frost.kochenite.BookUiDeviceTest', uiRunner], 120_000);
+    result.completedTests += completedTests(uiOutput, 2);
+  }
   result.stage = 'complete';
   result.ok = true;
 } catch (error) {

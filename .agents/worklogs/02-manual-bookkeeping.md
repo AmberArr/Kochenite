@@ -65,3 +65,25 @@ Coverage limits: kernel/storage only, no financial UI/recreation/process-kill
 journeys or signed financial upgrade yet. No Phase 2.2+ completion claimed. No
 release/Bluecoins/user financial data modified. Off-machine signing backup remains
 required for the 2.9 real-use gate. Next action: milestone 2.2.
+
+## Milestone 2.2 — September 23, 2026
+
+Implemented offline setup, explicit account/display currencies, typed four-destination
+Navigation Compose, responsive navigation rail/list-detail, and account, group and
+category management. Signed opening balances and adjustments affect only balances.
+Account currency remains locked after any posting, including purge. Category direct
+and child totals roll up once. Foundation proof remains accessible in a debug-only
+activity; its database is untouched. Financial schema v3 adds book settings, account
+groups and account metadata through a preserving migration.
+
+Verification: `./gradlew verify :app:assembleDebug :app:assembleDebugAndroidTest
+:persistence:assembleDebugAndroidTest` passed (formatting, lint, JVM, host tests and
+APK builds). The explicit-serial physical-device runner passed 19 financial/setup/UI
+assertions, including recreation and v2→v3 migration; evidence is in ignored
+`.local/financial-evidence/instrumentation.json`. Installed the debug APK only on
+the rediscovered OnePlus 6T, verified the app was top-resumed, and inspected its
+Overview rendering and teal control. All records used were synthetic.
+
+Scope limit: the current Add control creates accounts until 2.3 entry is wired.
+Transactions shown in the app are read-only. No real-bookkeeping handoff or Phase 2
+completion is claimed. Next action: implement milestone 2.3.
