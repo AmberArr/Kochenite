@@ -211,6 +211,10 @@ data class Draft(
     val input: EntryInput,
     val originalToken: String? = null,
     val incomplete: Boolean = false,
+    /** Preserves intermediate editor input such as "12." or an invalid amount. */
+    val amountText: String? = null,
+    val dateText: String? = null,
+    val timeText: String? = null,
 )
 
 data class LedgerCursor(
@@ -252,6 +256,11 @@ interface PostingService {
     ): LedgerResult<SavedEntry>
 
     suspend fun beginEdit(entryId: String): LedgerResult<Draft>
+
+    suspend fun discardDraft(
+        draftId: String,
+        expectedToken: String,
+    ): LedgerResult<Unit>
 
     suspend fun trash(
         entryId: String,

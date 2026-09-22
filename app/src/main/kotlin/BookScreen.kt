@@ -3,6 +3,7 @@ package moe.frost.kochenite
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -45,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,9 +72,16 @@ import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountGroup
+import moe.frost.kochenite.domain.ledger.Allocation
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.Category
 import moe.frost.kochenite.domain.ledger.CategoryKind
+import moe.frost.kochenite.domain.ledger.Draft
+import moe.frost.kochenite.domain.ledger.EntryKind
+import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.SavedEntry
+import java.time.LocalDate
+import java.time.LocalTime
 import java.util.Currency
 import java.util.UUID
 
@@ -106,6 +115,14 @@ import java.util.UUID
     val id: String,
 )
 
+@Serializable internal data class EntryDraftRoute(
+    val id: String,
+)
+
+@Serializable internal data class EntryDetailRoute(
+    val id: String,
+)
+
 private fun currency(code: String): BookCurrency? =
     try {
         Currency.getInstance(code.trim().uppercase()).let { BookCurrency(it.currencyCode, it.defaultFractionDigits) }
@@ -120,13 +137,14 @@ private fun currency(code: String): BookCurrency? =
     enabled: Boolean = true,
     number: Boolean = false,
 ) {
+    val labelText = stringResource(label)
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
-        label = { Text(stringResource(label)) },
+        label = { Text(labelText) },
         enabled = enabled,
         singleLine = true,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("field-$labelText"),
         keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Ascii else KeyboardType.Text),
     )
 }
@@ -194,6 +212,9 @@ internal fun BookScreen(
 ) {
     BackHandler(enabled = state.saving) {}
     val nav = rememberNavController()
+    val editor by model.editor.collectAsState()
+    val detail by model.detail.collectAsState()
+    BackHandler(enabled = editor != null) { model.closeEditor { nav.popBackStack() } }
     val current by nav.currentBackStackEntryAsState()
     LaunchedEffect(model) { model.saved.collect { if (nav.previousBackStackEntry != null) nav.popBackStack() } }
     if (state.loading) {
@@ -228,14 +249,18 @@ internal fun BookScreen(
 
     fun navigate(route: Any) {
         if (state.saving) return
-        model.clearError()
-        nav.navigate(route) {
-            launchSingleTop = true
-            if (tabs.any { it.first == route }) {
-                popUpTo<OverviewRoute> { saveState = true }
-                restoreState = true
+
+        fun push() {
+            model.clearError()
+            nav.navigate(route) {
+                launchSingleTop = true
+                if (tabs.any { it.first == route }) {
+                    popUpTo<OverviewRoute> { saveState = true }
+                    restoreState = true
+                }
             }
         }
+        if (editor != null) model.closeEditor { push() } else push()
     }
     BoxWithConstraints {
         val wide = maxWidth >= 840.dp
@@ -246,7 +271,7 @@ internal fun BookScreen(
                         null
                     ) {
                         TextButton(enabled = !state.saving, onClick = {
-                            nav.popBackStack()
+                            if (editor != null) model.closeEditor { nav.popBackStack() } else nav.popBackStack()
                             model.clearError()
                         }) { Text(stringResource(R.string.back)) }
                     }
@@ -269,7 +294,7 @@ internal fun BookScreen(
             },
             floatingActionButton = {
                 ExtendedFloatingActionButton(onClick = {
-                    navigate(AccountRoute())
+                    navigate(EntryDraftRoute(UUID.randomUUID().toString()))
                 }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.add)) }
             },
             contentWindowInsets = WindowInsets.safeDrawing,
@@ -296,7 +321,13 @@ internal fun BookScreen(
                 }
                 NavHost(nav, startDestination = OverviewRoute, modifier = Modifier.weight(1f)) {
                     composable<OverviewRoute> { OverviewPanel(state) }
-                    composable<TransactionsRoute> { TransactionsPanel(state) }
+                    composable<TransactionsRoute> {
+                        TransactionsPanel(
+                            state,
+                            { navigate(EntryDraftRoute(it)) },
+                            { navigate(EntryDetailRoute(it)) },
+                        )
+                    }
                     composable<ReportsRoute> { ReportPanel(state) }
                     composable<AccountsRoute> {
                         AccountsPanel(
@@ -328,6 +359,16 @@ internal fun BookScreen(
                     composable<GroupsRoute> { GroupsPanel(state) { navigate(GroupRoute(it)) } }
                     composable<GroupRoute> { GroupForm(it.toRoute<GroupRoute>().id, state, model) }
                     composable<AdjustmentRoute> { AdjustmentForm(it.toRoute<AdjustmentRoute>().id, state, model) }
+                    composable<EntryDraftRoute> {
+                        val id = it.toRoute<EntryDraftRoute>().id
+                        LaunchedEffect(id) { model.openDraft(id) }
+                        EntryEditorForm(id, state, editor, model) { model.discardEditor { nav.popBackStack() } }
+                    }
+                    composable<EntryDetailRoute> {
+                        val id = it.toRoute<EntryDetailRoute>().id
+                        LaunchedEffect(id) { model.openDetail(id) }
+                        EntryDetailForm(id, detail, state, model) { draftId -> nav.navigate(EntryDraftRoute(draftId)) }
+                    }
                 }
             }
         }
@@ -553,16 +594,233 @@ internal fun BookScreen(
     }
 }
 
-@Composable private fun TransactionsPanel(state: BookState) {
+@Composable private fun TransactionsPanel(
+    state: BookState,
+    openDraft: (String) -> Unit,
+    openEntry: (String) -> Unit,
+) {
+    var filter by rememberSaveable { mutableStateOf("posted") }
     Form(R.string.transactions, state) {
-        if (state.entries.isEmpty()) Text(stringResource(R.string.no_entries))
-        state.entries.forEach { entry ->
-            val account = state.accounts.find { it.account.id == entry.input.accountId }?.account
-            Text("${entry.input.date} • ${account?.name.orEmpty()}", style = MaterialTheme.typography.titleMedium)
-            account?.currency?.let { Text("${it.code} ${it.formatMinor(entry.input.amountMinor!!)}") }
-            if (entry.input.note.isNotEmpty()) Text(entry.input.note)
-            HorizontalDivider()
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                "posted" to R.string.posted,
+                "draft" to R.string.drafts,
+                "incomplete" to R.string.incomplete,
+                "trash" to R.string.trash,
+            ).forEach { (key, label) ->
+                TextButton(onClick = { filter = key }) { Text(stringResource(label)) }
+            }
         }
+        if (filter == "draft" || filter == "incomplete") {
+            state.drafts.filter { it.incomplete == (filter == "incomplete") }.forEach { draft ->
+                TextButton(onClick = { openDraft(draft.id) }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("${draft.input.date} • ${draft.input.merchant.ifBlank { draft.input.kind.name }}")
+                }
+            }
+        } else {
+            val entries = if (filter == "trash") state.trashed else state.entries
+            if (entries.isEmpty()) Text(stringResource(R.string.no_entries))
+            entries.forEach { entry ->
+                val account = state.accounts.find { it.account.id == entry.input.accountId }?.account
+                TextButton(onClick = { openEntry(entry.id) }, modifier = Modifier.heightIn(min = 64.dp)) {
+                    Text(
+                        "${entry.input.date} • ${entry.input.merchant.ifBlank {
+                            account?.name.orEmpty()
+                        }} • ${account?.currency?.code.orEmpty()} ${account?.currency?.formatMinor(
+                            entry.input.amountMinor ?: 0,
+                        ).orEmpty()}",
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun EntryDetailForm(
+    id: String,
+    entry: SavedEntry?,
+    state: BookState,
+    model: BookViewModel,
+    edit: (String) -> Unit,
+) {
+    var confirmPurge by rememberSaveable(id) { mutableStateOf(false) }
+    if (entry?.id != id) {
+        Form(R.string.transactions, state) { CircularProgressIndicator() }
+        return
+    }
+    val account = state.accounts.find { it.account.id == entry.input.accountId }?.account
+    Form(R.string.transactions, state) {
+        Text(entry.input.merchant.ifBlank { entry.input.kind.name }, style = MaterialTheme.typography.headlineSmall)
+        Text("${entry.input.date} ${entry.input.time}")
+        Text(
+            "${account?.name.orEmpty()} · ${account?.currency?.code.orEmpty()} ${account?.currency?.formatMinor(
+                entry.input.amountMinor ?: 0,
+            ).orEmpty()}",
+        )
+        entry.input.allocations.forEach { allocation ->
+            Text(
+                "${state.categories.find { it.id == allocation.categoryId }?.name ?: stringResource(
+                    R.string.category,
+                )} · ${account?.currency?.formatMinor(allocation.amountMinor).orEmpty()}",
+            )
+        }
+        if (entry.input.note.isNotBlank()) Text(entry.input.note)
+        if (entry.status == EntryStatus.POSTED) {
+            TextButton(onClick = { model.startEdit(entry.id, edit) }) { Text(stringResource(R.string.edit_transaction)) }
+            TextButton(onClick = { model.trashEntry(entry) }) { Text(stringResource(R.string.move_to_trash)) }
+        } else {
+            TextButton(onClick = { model.restoreEntry(entry) }) { Text(stringResource(R.string.restore)) }
+            if (!confirmPurge) {
+                TextButton(onClick = { confirmPurge = true }) { Text(stringResource(R.string.delete_permanently)) }
+            } else {
+                Text(stringResource(R.string.purge_warning), color = MaterialTheme.colorScheme.error)
+                Button(onClick = { model.purgeEntry(entry) }) { Text(stringResource(R.string.confirm_delete)) }
+                TextButton(onClick = { confirmPurge = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        }
+    }
+}
+
+@Composable private fun EntryEditorForm(
+    id: String,
+    state: BookState,
+    editor: EntryEditorState?,
+    model: BookViewModel,
+    discard: () -> Unit,
+) {
+    val current = editor?.draft?.takeIf { it.id == id }
+    if (current == null) {
+        Form(R.string.new_transaction, state) { CircularProgressIndicator() }
+        return
+    }
+    val account = state.accounts.find { it.account.id == current.input.accountId }?.account
+    val amountText = current.amountText ?: account?.currency?.let { current.input.amountMinor?.let(it::formatMinor) }.orEmpty()
+    val dateText = current.dateText ?: current.input.date.toString()
+    val timeText =
+        current.timeText ?: current.input.time
+            .toString()
+            .take(5)
+
+    fun changeAmount(
+        draft: Draft,
+        text: String,
+        accountId: String = draft.input.accountId,
+    ): Draft {
+        val money =
+            state.accounts
+                .find { it.account.id == accountId }
+                ?.account
+                ?.currency
+        val minor = runCatching { money?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
+        val first = draft.input.allocations.firstOrNull()
+        val allocations =
+            if (minor ==
+                null
+            ) {
+                emptyList()
+            } else {
+                listOf(Allocation(first?.id ?: UUID.randomUUID().toString(), minor, first?.categoryId))
+            }
+        return draft.copy(
+            amountText = text,
+            input = draft.input.copy(accountId = accountId, amountMinor = minor, allocations = allocations),
+        )
+    }
+
+    Form(R.string.new_transaction, state) {
+        Text(
+            stringResource(
+                if (editor.error != null && !editor.saved) {
+                    R.string.draft_save_failed
+                } else if (editor.saving || !editor.saved) {
+                    R.string.saving
+                } else {
+                    R.string.saved
+                },
+            ),
+        )
+        editor.error?.let {
+            Text(
+                stringResource(it),
+                color = MaterialTheme.colorScheme.error,
+                modifier =
+                    Modifier.semantics {
+                        liveRegion =
+                            LiveRegionMode.Polite
+                    },
+            )
+        }
+        Choice(
+            R.string.transaction_kind,
+            stringResource(if (current.input.kind == EntryKind.EXPENSE) R.string.expense else R.string.income),
+            listOf(EntryKind.EXPENSE.name to stringResource(R.string.expense), EntryKind.INCOME.name to stringResource(R.string.income)),
+        ) { selected ->
+            val kind = EntryKind.valueOf(selected ?: EntryKind.EXPENSE.name)
+            model.updateEditor { draft ->
+                draft.copy(input = draft.input.copy(kind = kind, allocations = draft.input.allocations.map { it.copy(categoryId = null) }))
+            }
+        }
+        Field(R.string.amount, amountText, { text -> model.updateEditor { changeAmount(it, text) } }, number = true)
+        Choice(
+            R.string.account_name,
+            account?.name ?: stringResource(R.string.select_account),
+            state.accounts.filter { !it.account.archived }.map { it.account.id to "${it.account.name} · ${it.account.currency.code}" },
+        ) { selected -> if (selected != null) model.updateEditor { changeAmount(it, amountText, selected) } }
+        Field(
+            R.string.merchant_payee,
+            current.input.merchant,
+            { text -> model.updateEditor { it.copy(input = it.input.copy(merchant = text)) } },
+        )
+        Field(R.string.transaction_date, dateText, { text ->
+            model.updateEditor { draft ->
+                val parsed = runCatching { LocalDate.parse(text) }.getOrNull()
+                draft.copy(dateText = text, input = draft.input.copy(date = parsed ?: draft.input.date))
+            }
+        })
+        Field(R.string.transaction_time, timeText, { text ->
+            model.updateEditor { draft ->
+                val parsed = runCatching { LocalTime.parse(text) }.getOrNull()
+                draft.copy(timeText = text, input = draft.input.copy(time = parsed ?: draft.input.time))
+            }
+        })
+        val categories = state.categories.filter { !it.archived && it.kind.name == current.input.kind.name }
+        val categoryId =
+            current.input.allocations
+                .firstOrNull()
+                ?.categoryId
+        Choice(
+            R.string.category,
+            categories.find { it.id == categoryId }?.name
+                ?: stringResource(
+                    if (current.input.kind ==
+                        EntryKind.EXPENSE
+                    ) {
+                        R.string.uncategorized_expense
+                    } else {
+                        R.string.uncategorized_income
+                    },
+                ),
+            listOf(
+                null to
+                    stringResource(
+                        if (current.input.kind ==
+                            EntryKind.EXPENSE
+                        ) {
+                            R.string.uncategorized_expense
+                        } else {
+                            R.string.uncategorized_income
+                        },
+                    ),
+            ) +
+                categories.map { it.id to it.name },
+        ) { selected ->
+            model.updateEditor { draft ->
+                draft.copy(input = draft.input.copy(allocations = draft.input.allocations.map { it.copy(categoryId = selected) }))
+            }
+        }
+        Field(R.string.notes, current.input.note, { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } })
+        Button(onClick = model::confirmEditor, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.post)) }
+        TextButton(onClick = discard, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.discard_draft)) }
     }
 }
 

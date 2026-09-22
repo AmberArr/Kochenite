@@ -27,7 +27,8 @@ class BookUiDeviceTest {
         label: String,
         value: String,
     ) {
-        compose.onNodeWithText(label).performScrollTo().performTextReplacement(value)
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("field-$label").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("field-$label").performScrollTo().performTextReplacement(value)
     }
 
     private fun ready() {
@@ -101,6 +102,60 @@ class BookUiDeviceTest {
             val book = (app.financialStorage.open() as LedgerResult.Success).value
             val rows = (book.categoryRepository.list() as LedgerResult.Success).value
             assertEquals(1, rows.count { it.name == name })
+        }
+    }
+
+    @Test fun draftInputSurvivesRecreationAndPostsOnce() {
+        ready()
+        val merchant = "Synthetic expense ${UUID.randomUUID().toString().take(8)}"
+        val app = context.applicationContext as KocheniteApplication
+        val book = (runBlocking { app.financialStorage.open() } as LedgerResult.Success).value
+        val firstAccount =
+            (runBlocking { book.accountRepository.list() } as LedgerResult.Success)
+                .value
+                .first { !it.account.archived }
+                .account
+        val before = (runBlocking { book.balance(firstAccount.id) } as LedgerResult.Success).value
+        compose.onNodeWithText("Add").performClick()
+        compose.onNodeWithText("New transaction").assertIsDisplayed()
+        field("Amount", "12.34")
+        field("Merchant or payee", merchant)
+        compose.waitUntil(15000) {
+            runBlocking {
+                (book.drafts() as LedgerResult.Success).value.any { it.input.merchant == merchant && it.amountText == "12.34" }
+            }
+        }
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText(merchant).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Post transaction").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking {
+                (book.page() as LedgerResult.Success).value.entries.any { it.input.merchant == merchant }
+            }
+        }
+        val after = (runBlocking { book.balance(firstAccount.id) } as LedgerResult.Success).value
+        assertEquals(Math.subtractExact(before, 1234L), after)
+        assertEquals(0, (runBlocking { book.drafts() } as LedgerResult.Success).value.count { it.input.merchant == merchant })
+        compose.waitUntil(15000) { compose.onAllNodesWithText("New transaction").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("nav-1").performClick()
+        compose.onNodeWithText(merchant, substring = true).performScrollTo().performClick()
+        compose.onNodeWithText("Edit transaction").performClick()
+        field("Amount", "20.00")
+        compose.onNodeWithText("Post transaction").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.balance(firstAccount.id) as LedgerResult.Success).value == Math.subtractExact(before, 2000L) }
+        }
+        compose.onNodeWithText("Move to trash").assertIsDisplayed()
+        compose.onNodeWithText("Move to trash").performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.balance(firstAccount.id) as LedgerResult.Success).value == before }
+        }
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Move to trash").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("Trash").performClick()
+        compose.onNodeWithText(merchant, substring = true).performScrollTo().performClick()
+        compose.onNodeWithText("Restore").performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.balance(firstAccount.id) as LedgerResult.Success).value == Math.subtractExact(before, 2000L) }
         }
     }
 }

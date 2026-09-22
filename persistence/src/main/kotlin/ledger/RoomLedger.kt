@@ -118,6 +118,24 @@ class RoomLedger internal constructor(
 
     suspend fun draft(id: String): LedgerResult<Draft> = storageResult { dao.draft(id)?.model() ?: missing() }
 
+    suspend fun drafts(limit: Int = 100): LedgerResult<List<Draft>> =
+        storageResult {
+            if (limit !in 1..200) invalid(InvalidReason.STATE)
+            dao.drafts(limit).map { it.model() }
+        }
+
+    override suspend fun discardDraft(
+        draftId: String,
+        expectedToken: String,
+    ): LedgerResult<Unit> =
+        storageResult {
+            db.withTransaction {
+                val current = dao.draft(draftId) ?: missing()
+                if (current.token != expectedToken) conflict()
+                dao.deleteDraft(draftId)
+            }
+        }
+
     suspend fun entry(id: String): LedgerResult<SavedEntry> = storageResult { db.withTransaction { model(dao.entry(id) ?: missing()) } }
 
     suspend fun balance(accountId: String): LedgerResult<Long> = storageResult { dao.balance(accountId) }
@@ -174,7 +192,10 @@ class RoomLedger internal constructor(
         storageResult {
             db.withTransaction {
                 if (!validId(draft.id) || !validId(draft.entryId)) invalid(InvalidReason.IDENTITY)
-                if (draft.input.merchant.length > 500 || draft.input.note.length > 10000 || draft.input.allocations.size > 1000) {
+                if (draft.input.merchant.length > 500 || draft.input.note.length > 10000 || draft.input.allocations.size > 1000 ||
+                    (draft.amountText?.length ?: 0) > 100 || (draft.dateText?.length ?: 0) > 40 ||
+                    (draft.timeText?.length ?: 0) > 40
+                ) {
                     invalid(InvalidReason.TEXT_TOO_LONG)
                 }
                 val old = dao.draft(draft.id)

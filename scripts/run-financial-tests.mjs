@@ -34,7 +34,7 @@ try {
   result.stage = 'financial-storage';
   const output = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.FinancialStorageDeviceTest', runner], 120_000);
-  result.completedTests = completedTests(output, 12);
+  result.completedTests = completedTests(output, 13);
   result.stage = 'book-setup';
   const setupOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.BookSetupDeviceTest', runner], 120_000);
@@ -48,7 +48,17 @@ try {
     adb(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
     const uiOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
       'moe.frost.kochenite.BookUiDeviceTest', uiRunner], 120_000);
-    result.completedTests += completedTests(uiOutput, 2);
+    result.completedTests += completedTests(uiOutput, 3);
+    result.stage = 'process-draft-create';
+    const createOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+      'moe.frost.kochenite.BookProcessDeviceTest#createAcknowledgedDraft', uiRunner], 120_000);
+    result.completedTests += completedTests(createOutput, 1);
+    result.stage = 'process-restart';
+    adb(['shell', 'am', 'force-stop', app]);
+    result.stage = 'process-draft-verify';
+    const verifyOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+      'moe.frost.kochenite.BookProcessDeviceTest#verifyAfterProcessRestart', uiRunner], 120_000);
+    result.completedTests += completedTests(verifyOutput, 1);
   }
   result.stage = 'complete';
   result.ok = true;

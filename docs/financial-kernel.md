@@ -46,11 +46,19 @@ Uncategorized income/expense options correspond to null category IDs.
 
 The main app now uses [typed Navigation Compose routes](https://developer.android.com/guide/navigation/design/type-safety)
 for Overview, Transactions, Accounts, Reports and settings/forms. Only IDs travel
-in routes. Navigation/filter state uses Android saved state; future transaction
-drafts will use Room. The existing foundation proof activity remains available in
-debug builds for its original tests and is absent from release. The full entry,
-search, report, estimate and backup workflows remain later milestones. The Add
-button currently creates an account; it becomes transaction entry in 2.3.
+in routes. Navigation/filter state uses Android saved state; transaction drafts use
+Room. The existing foundation proof activity remains available in debug builds
+for its original tests and is absent from release. Search, full reports, current
+rate estimates and backup workflows remain later milestones. The Add button opens
+an amount-first expense/income draft; accounts are created from the Accounts tab.
+
+The entry editor autosaves raw amount/date/time text alongside validated financial
+input. Acknowledged draft writes are visible as Saved, and navigation waits for
+pending persistence. Invalid posting leaves the draft available to correct.
+Transaction details can start a durable edit draft; posted originals remain effective
+until confirmation succeeds. Trash, restore and confirmed permanent deletion use the
+same atomic posting service. Transactions lists posted, draft, incomplete and trash
+states; completion of incomplete entries is part of milestone 2.4.
 
 ## Verification
 
@@ -69,11 +77,12 @@ node scripts/run-financial-tests.mjs "$ANDROID_SERIAL" --ui
 Set `ANDROID_SERIAL` to the explicitly selected currently connected reference
 phone and substitute the discovered Android user if it is not 0. Never create an
 emulator or clear app data. The runner verifies the isolated debug storage test
-package and instrumentation target, bounds ADB execution, and requires twelve
-kernel, five setup/storage and two UI assertions to finish successfully. Storage
-tests create/delete random synthetic databases. UI tests retain synthetic records
-in the separate debug application. The runner does not modify the release app or
-other apps.
+package and instrumentation target, bounds ADB execution, and requires thirteen
+kernel, five setup/storage, three UI and two process-restart assertions to finish.
+Storage tests create/delete random synthetic databases. UI tests retain synthetic
+records in the separate debug application. The process test force-stops only that
+debug identity and verifies an acknowledged draft on a fresh process. The runner
+does not modify the release app or other apps.
 Sanitized results are kept in ignored `.local/financial-evidence`; failed runs
 have a separate summary so they cannot replace the last successful evidence.
 
@@ -82,7 +91,7 @@ range, signs, overflow, category reconciliation, transfers, missing/future amoun
 draft reopen, concurrent confirmation, stale drafts/edits, transactional failure/
 cancellation, edit/trash/restore/purge/refund detachment, persistent currency lock,
 bounded pages, migration preservation/rollback and non-destructive corrupt opens.
-These tests also cover signed setup, reference-safe category/account edits and
-recreation of navigation/form state. They do not yet cover transaction-entry
-process death, release upgrades, receipt lines, rates or backup/restore; those
-remain later gates.
+These tests also cover signed setup, reference-safe category/account edits,
+navigation/form recreation, amount-first entry, entry edit/trash/restore, raw draft
+roundtrips and a forced debug-process restart. Financial release upgrades, receipt
+lines, rates and backup/restore remain later gates.

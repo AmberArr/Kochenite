@@ -73,4 +73,25 @@
     <string name="currency_locked">Currency locked by a posting</string>
     <string name="select_account">Select an account to see its details</string>
     <string name="add_account">Add account</string>
+    <string name="new_transaction">New transaction</string>
+    <string name="transaction_kind">Transaction kind</string>
+    <string name="amount">Amount</string>
+    <string name="merchant_payee">Merchant or payee</string>
+    <string name="transaction_date">Date (YYYY-MM-DD)</string>
+    <string name="transaction_time">Local time (HH:MM)</string>
+    <string name="category">Category</string>
+    <string name="post">Post transaction</string>
+    <string name="saved">Saved</string>
+    <string name="draft_save_failed">Draft not saved; changes remain here</string>
+    <string name="discard_draft">Discard draft</string>
+    <string name="drafts">Drafts</string>
+    <string name="posted">Posted</string>
+    <string name="trash">Trash</string>
+    <string name="incomplete">Incomplete</string>
+    <string name="edit_transaction">Edit transaction</string>
+    <string name="move_to_trash">Move to trash</string>
+    <string name="restore">Restore</string>
+    <string name="delete_permanently">Delete permanently</string>
+    <string name="confirm_delete">Confirm permanent deletion</string>
+    <string name="purge_warning">This transaction and its allocations will be permanently deleted.</string>
 </resources>

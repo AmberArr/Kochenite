@@ -26,6 +26,9 @@ internal fun Draft.row(): DraftRow {
             .put("merchant", input.merchant)
             .put("note", input.note)
             .put("purchase", input.purchaseId)
+            .put("amountText", amountText)
+            .put("dateText", dateText)
+            .put("timeText", timeText)
             .put(
                 "allocations",
                 JSONArray().apply {
@@ -80,5 +83,8 @@ internal fun DraftRow.model(): Draft {
         ),
         originalToken,
         incomplete,
+        optional("amountText"),
+        optional("dateText"),
+        optional("timeText"),
     )
 }

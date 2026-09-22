@@ -138,8 +138,9 @@ verified commits and keep dated results only in the worklog.
 - 2.0: complete; [decision/example evidence](../../worklogs/02-manual-bookkeeping.md#milestone-20).
 - 2.1: complete; [kernel/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-21--september-23-2026).
 - 2.2: complete; [setup/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-22--september-23-2026).
-- 2.3: in progress. 2.4–2.9: pending.
+- 2.3: complete; [entry/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-23--september-23-2026).
+- 2.4: in progress. 2.5–2.9: pending.
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
-- Next: add a Room-backed transaction editor with stable draft IDs, autosaved raw
-  input, visible save status and Back flushing; then entry details, edit drafts and
-  trash/restore/purge. Verify process recreation, failures and exact totals.
+- Next: extend the editor and posting service for same/cross-currency transfers,
+  merchant context and incomplete drafts; then add linked/standalone refunds and
+  affected-view counts. Verify actual account amounts and period reporting.

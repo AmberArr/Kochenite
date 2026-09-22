@@ -87,3 +87,31 @@ Overview rendering and teal control. All records used were synthetic.
 Scope limit: the current Add control creates accounts until 2.3 entry is wired.
 Transactions shown in the app are read-only. No real-bookkeeping handoff or Phase 2
 completion is claimed. Next action: implement milestone 2.3.
+
+## Milestone 2.3 — September 23, 2026
+
+Added amount-first expense/income entry, Room-backed raw editor text, debounced
+autosave with visible save status, Back flushing, draft resume/discard, explicit
+confirmation, details, durable edit drafts and posted/draft/incomplete/trash views.
+The detail view provides trash, restore and confirmed permanent purge. Current
+financial records are replaced atomically; stale tokens and invalid posting retain
+the draft and leave the posted original intact. Draft payload v1 gained optional
+raw text fields without a Room schema change, so older drafts still decode.
+
+Verification: `./gradlew spotlessApply verify :app:assembleDebug
+:app:assembleDebugAndroidTest` passed, including formatting, lint, JVM/host tests
+and builds. The explicit-serial physical-phone runner passed 23 assertions: 13
+kernel/storage, five setup, three UI and two process-restart. UI coverage includes
+recreation with an acknowledged draft, exact expense posting, editing, trash and
+restore. The runner force-stopped only the debug app between the two process tests,
+then read and discarded its own synthetic draft. Evidence is sanitized in ignored
+`.local/financial-evidence/instrumentation.json`. No real financial or release app
+data were touched.
+
+The first combined run exposed an editor-test race: the field label was queried
+before the asynchronous edit route had an editable node. Stable field tags and a
+wait for the editable node fixed this; the full 23-assertion runner passed. Existing
+2.1 storage tests cover failed/cancelled posting, stale edits and atomic rollback.
+The editor surfaces save failures while retaining current input. Current list pages
+are bounded; search and richer filtering belong to 2.6. Incomplete creation,
+transfers and refunds belong to 2.4. Next action: milestone 2.4.

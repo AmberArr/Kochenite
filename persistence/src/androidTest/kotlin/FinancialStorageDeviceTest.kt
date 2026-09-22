@@ -101,6 +101,23 @@ class FinancialStorageDeviceTest {
         return success(ledger.confirm(saved.id, saved.token))
     }
 
+    @Test fun draftListingRawInputAndDiscardAreDurableAndTokenChecked() =
+        runBlocking {
+            var ledger = open()
+            seed(ledger)
+            val first = draft(ledger).copy(amountText = "12.", dateText = "2026-09-", timeText = "12:")
+            val saved = success(ledger.saveDraft(first, first.token))
+            val second = draft(ledger)
+            ledger = open()
+            assertEquals(listOf(second, saved), success(ledger.drafts()))
+            assertEquals(LedgerResult.Conflict, ledger.discardDraft(saved.id, first.token))
+            assertEquals(saved, success(ledger.draft(saved.id)))
+            success(ledger.discardDraft(saved.id, saved.token))
+            assertEquals(LedgerResult.Missing, ledger.draft(saved.id))
+            assertEquals(listOf(second), success(ledger.drafts()))
+            assertEquals(LedgerResult.Invalid(InvalidReason.STATE), ledger.drafts(0))
+        }
+
     @Test fun exactReopenDraftConsumptionAndReports() =
         runBlocking {
             var ledger = open()
