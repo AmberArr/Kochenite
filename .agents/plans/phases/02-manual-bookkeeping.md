@@ -94,6 +94,20 @@ verified commits and keep dated results only in the worklog.
 - Exit: expected search/filter results, templates never post, bulk rejects stale sets
   without partial writes and changes only selected categories, preserving all totals.
 
+### 2.6 implementation sequence
+
+1. Add schema v5 for flat tags, entry-tag links and templates; migrate v4 data.
+   Extend draft and posted aggregates with tag IDs while keeping old JSON readable.
+2. Add bounded database search over posted/trash records with date, account,
+   category descendants, tag, kind, status and selected-currency amount filters.
+   Include merchant/payee, notes and receipt descriptions in text matching.
+3. Add tag editing/archival, copy to a new today-dated draft, and template
+   creation/application that requires correction of archived ID references.
+4. Add allocation-row bulk selection and preview. Compare selected entry tokens
+   inside one write transaction; update only category IDs and reject any stale row.
+5. Verify migration, exact filters, Unicode text, draft identity, template safety,
+   atomic bulk rollback and a device UI journey before closing the milestone.
+
 ## 2.7 — Reports and current estimates
 
 - Overview balances/current net worth/month income/spending/net flow; Reports date-range
@@ -141,7 +155,7 @@ verified commits and keep dated results only in the worklog.
 - 2.3: complete; [entry/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-23--september-23-2026).
 - 2.4: complete; [transfer/refund evidence](../../worklogs/02-manual-bookkeeping.md#milestone-24--september-23-2026).
 - 2.5: complete; [split/receipt evidence](../../worklogs/02-manual-bookkeeping.md#milestone-25--september-23-2026).
-- 2.6: next. 2.7–2.9: pending.
+- 2.6: complete; [search/template/bulk evidence](../../worklogs/02-manual-bookkeeping.md#milestone-26--september-23-2026). 2.7–2.9: pending.
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
-- Next: design indexed bounded ledger search/filter queries and tag references,
-  then add copy/template drafts and atomic allocation-row bulk categorization.
+- Next: implement 2.7 authoritative reports and replaceable current-rate estimates,
+  beginning with report drilldowns and rate-provider/cache contracts.

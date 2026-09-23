@@ -35,6 +35,7 @@ internal fun Draft.row(): DraftRow {
             .put("merchantCurrencyText", merchantCurrencyText)
             .put("allocationTexts", JSONObject(allocationTexts))
             .put("lineTexts", JSONObject(lineTexts))
+            .put("tagIds", JSONArray(input.tagIds))
             .put(
                 "allocations",
                 JSONArray().apply {
@@ -89,6 +90,8 @@ internal fun DraftRow.model(): Draft {
             val row = receiptRows.getJSONObject(it)
             ReceiptLine(row.getString("id"), row.getString("description"), row.getString("merchantMinor").toLong())
         }
+    val tagRows = json.optJSONArray("tagIds") ?: JSONArray()
+    val tagIds = (0 until tagRows.length()).map { tagRows.getString(it) }
 
     fun textMap(key: String): Map<String, String> =
         json.optJSONObject(key)?.let { objectJson ->
@@ -112,6 +115,7 @@ internal fun DraftRow.model(): Draft {
             money,
             optional("purchase"),
             receiptLines,
+            tagIds,
         ),
         originalToken,
         incomplete,

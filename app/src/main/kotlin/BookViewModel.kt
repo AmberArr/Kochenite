@@ -16,6 +16,7 @@ import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountBalance
 import moe.frost.kochenite.domain.ledger.AccountGroup
 import moe.frost.kochenite.domain.ledger.Allocation
+import moe.frost.kochenite.domain.ledger.AllocationSelection
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.BookSettings
 import moe.frost.kochenite.domain.ledger.Category
@@ -24,8 +25,12 @@ import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryInput
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.EntryTemplate
+import moe.frost.kochenite.domain.ledger.LedgerCursor
+import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.SavedEntry
+import moe.frost.kochenite.domain.ledger.Tag
 import moe.frost.kochenite.persistence.ledger.FinancialStorage
 import moe.frost.kochenite.persistence.ledger.RoomLedger
 import java.time.LocalDate
@@ -47,8 +52,12 @@ data class BookState(
     val accounts: List<AccountBalance> = emptyList(),
     val groups: List<AccountGroup> = emptyList(),
     val categories: List<Category> = emptyList(),
+    val tags: List<Tag> = emptyList(),
+    val templates: List<EntryTemplate> = emptyList(),
     val entries: List<SavedEntry> = emptyList(),
     val trashed: List<SavedEntry> = emptyList(),
+    val searchEntries: List<SavedEntry> = emptyList(),
+    val searchNext: LedgerCursor? = null,
     val drafts: List<Draft> = emptyList(),
     val incompleteDrafts: List<Draft> = emptyList(),
     val incompleteCount: Int = 0,
@@ -72,6 +81,8 @@ internal class BookViewModel(
     private val completed = Channel<Unit>(Channel.BUFFERED)
     val saved = completed.receiveAsFlow()
     private var ledger: RoomLedger? = null
+    private var activeFilter = LedgerFilter()
+    val searchFilter: LedgerFilter get() = activeFilter
 
     init {
         refresh()
@@ -115,9 +126,13 @@ internal class BookViewModel(
         val accounts = book.accountRepository.list()
         val groups = book.accountRepository.groups()
         val categories = book.categoryRepository.list()
+        val tags = book.tagRepository.list()
+        val templates = book.templates()
         val settings = book.settingsRepository.get()
         val entries = book.page()
         val trashed = book.page(EntryStatus.TRASH)
+        val queryFilter = activeFilter
+        val searched = book.search(queryFilter)
         val drafts = book.drafts()
         val incomplete = book.incompleteDrafts()
         val today = LocalDate.now()
@@ -127,9 +142,12 @@ internal class BookViewModel(
                 accounts,
                 groups,
                 categories,
+                tags,
+                templates,
                 settings,
                 entries,
                 trashed,
+                searched,
                 drafts,
                 incomplete,
                 totals,
@@ -137,6 +155,7 @@ internal class BookViewModel(
         if (failed != null) {
             mutable.value = mutable.value.copy(loading = false, error = failure(failed))
         } else {
+            val currentSearch = if (queryFilter == activeFilter) (searched as LedgerResult.Success).value else null
             mutable.value =
                 BookState(
                     loading = false,
@@ -146,8 +165,12 @@ internal class BookViewModel(
                     accounts = (accounts as LedgerResult.Success).value,
                     groups = (groups as LedgerResult.Success).value,
                     categories = (categories as LedgerResult.Success).value,
+                    tags = (tags as LedgerResult.Success).value,
+                    templates = (templates as LedgerResult.Success).value,
                     entries = (entries as LedgerResult.Success).value.entries,
                     trashed = (trashed as LedgerResult.Success).value.entries,
+                    searchEntries = currentSearch?.entries ?: mutable.value.searchEntries,
+                    searchNext = if (currentSearch != null) currentSearch.next else mutable.value.searchNext,
                     drafts = (drafts as LedgerResult.Success).value,
                     incompleteCount = (incomplete as LedgerResult.Success).value.size,
                     incompleteDrafts = incomplete.value,
@@ -159,6 +182,7 @@ internal class BookViewModel(
                             .eachCount(),
                     totals = (totals as LedgerResult.Success).value,
                 )
+            if (queryFilter != activeFilter) search(activeFilter)
         }
     }
 
@@ -210,6 +234,60 @@ internal class BookViewModel(
         old: Category?,
     ) = mutate { it.categoryRepository.save(category, old) }
 
+    fun saveTag(
+        tag: Tag,
+        old: Tag?,
+    ) = mutate { it.tagRepository.save(tag, old) }
+
+    fun saveTemplate(template: EntryTemplate) = mutate { it.saveTemplate(template) }
+
+    fun deleteTemplate(id: String) = mutate { it.deleteTemplate(id) }
+
+    fun bulkCategorize(
+        selections: List<AllocationSelection>,
+        categoryId: String?,
+    ) {
+        if (mutable.value.saving) return
+        val book = ledger ?: return
+        mutable.value = mutable.value.copy(saving = true, error = null)
+        viewModelScope.launch {
+            val result = book.bulkCategorize(selections, categoryId)
+            if (result is LedgerResult.Success) reload() else mutable.value = mutable.value.copy(error = failure(result))
+            mutable.value = mutable.value.copy(saving = false)
+        }
+    }
+
+    fun search(filter: LedgerFilter) {
+        activeFilter = filter
+        viewModelScope.launch {
+            val result = ledger?.search(filter) ?: return@launch
+            if (filter != activeFilter) return@launch
+            if (result is LedgerResult.Success) {
+                mutable.value = mutable.value.copy(searchEntries = result.value.entries, searchNext = result.value.next)
+            } else {
+                mutable.value = mutable.value.copy(error = failure(result))
+            }
+        }
+    }
+
+    fun loadMoreSearch() {
+        val cursor = mutable.value.searchNext ?: return
+        val filter = activeFilter
+        viewModelScope.launch {
+            val result = ledger?.search(filter, cursor) ?: return@launch
+            if (filter != activeFilter) return@launch
+            if (result is LedgerResult.Success) {
+                mutable.value =
+                    mutable.value.copy(
+                        searchEntries = mutable.value.searchEntries + result.value.entries,
+                        searchNext = result.value.next,
+                    )
+            } else {
+                mutable.value = mutable.value.copy(error = failure(result))
+            }
+        }
+    }
+
     fun saveGroup(
         group: AccountGroup,
         old: AccountGroup?,
@@ -259,6 +337,40 @@ internal class BookViewModel(
     ) {
         viewModelScope.launch {
             val result = ledger?.beginEdit(entryId) ?: return@launch
+            if (result is LedgerResult.Success) {
+                persistedDraft = result.value
+                mutableEditor.value = EntryEditorState(result.value)
+                reload()
+                navigate(result.value.id)
+            } else {
+                mutable.value = mutable.value.copy(error = failure(result))
+            }
+        }
+    }
+
+    fun copyEntry(
+        entryId: String,
+        navigate: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val result = ledger?.copyEntry(entryId) ?: return@launch
+            if (result is LedgerResult.Success) {
+                persistedDraft = result.value
+                mutableEditor.value = EntryEditorState(result.value)
+                reload()
+                navigate(result.value.id)
+            } else {
+                mutable.value = mutable.value.copy(error = failure(result))
+            }
+        }
+    }
+
+    fun applyTemplate(
+        id: String,
+        navigate: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val result = ledger?.applyTemplate(id) ?: return@launch
             if (result is LedgerResult.Success) {
                 persistedDraft = result.value
                 mutableEditor.value = EntryEditorState(result.value)

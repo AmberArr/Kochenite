@@ -154,6 +154,35 @@ internal data class ReceiptLineRow(
     val merchantMinor: Long,
 )
 
+@Entity(tableName = "tags", indices = [Index(value = ["name"], unique = true)])
+internal data class TagRow(
+    @PrimaryKey val id: String,
+    val name: String,
+    val archived: Boolean,
+)
+
+@Entity(
+    tableName = "entry_tags",
+    primaryKeys = ["entryId", "tagId"],
+    foreignKeys = [
+        ForeignKey(entity = EntryRow::class, parentColumns = ["id"], childColumns = ["entryId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = TagRow::class, parentColumns = ["id"], childColumns = ["tagId"]),
+    ],
+    indices = [Index("tagId")],
+)
+internal data class EntryTagRow(
+    val entryId: String,
+    val tagId: String,
+    val position: Int,
+)
+
+@Entity(tableName = "templates")
+internal data class TemplateRow(
+    @PrimaryKey val id: String,
+    val name: String,
+    val payload: String,
+)
+
 // Draft account/category references deliberately remain free-form: unfinished input must survive edits.
 @Entity(tableName = "drafts", indices = [Index("entryId")])
 internal data class DraftRow(
@@ -183,6 +212,35 @@ internal data class CategoryTotalRow(
 
 @Dao
 internal interface LedgerDao {
+    @Query("SELECT * FROM tags ORDER BY name COLLATE NOCASE, id")
+    suspend fun tags(): List<TagRow>
+
+    @Query("SELECT * FROM tags WHERE id = :id")
+    suspend fun tag(id: String): TagRow?
+
+    @Insert suspend fun insertTag(row: TagRow)
+
+    @androidx.room.Update suspend fun updateTag(row: TagRow)
+
+    @Insert suspend fun insertEntryTag(row: EntryTagRow)
+
+    @Query("DELETE FROM entry_tags WHERE entryId = :id")
+    suspend fun deleteEntryTags(id: String)
+
+    @Query("SELECT tagId FROM entry_tags WHERE entryId = :id ORDER BY position")
+    suspend fun entryTags(id: String): List<String>
+
+    @Query("SELECT * FROM templates ORDER BY name COLLATE NOCASE, id")
+    suspend fun templates(): List<TemplateRow>
+
+    @Query("SELECT * FROM templates WHERE id = :id")
+    suspend fun template(id: String): TemplateRow?
+
+    @Insert suspend fun insertTemplate(row: TemplateRow)
+
+    @Query("DELETE FROM templates WHERE id = :id")
+    suspend fun deleteTemplate(id: String)
+
     @androidx.room.Update suspend fun updateAccount(row: AccountRow)
 
     @Query("SELECT * FROM account_groups ORDER BY position, id")
@@ -251,6 +309,19 @@ internal interface LedgerDao {
     @Query("SELECT * FROM allocations WHERE entryId = :id ORDER BY position")
     suspend fun allocations(id: String): List<AllocationRow>
 
+    @Query("SELECT * FROM allocations WHERE entryId = :entryId AND id = :id")
+    suspend fun allocation(
+        entryId: String,
+        id: String,
+    ): AllocationRow?
+
+    @Query("UPDATE allocations SET categoryId = :categoryId WHERE entryId = :entryId AND id = :id")
+    suspend fun setAllocationCategory(
+        entryId: String,
+        id: String,
+        categoryId: String?,
+    )
+
     @Query("SELECT * FROM receipt_lines WHERE entryId = :id ORDER BY position")
     suspend fun receiptLines(id: String): List<ReceiptLineRow>
 
@@ -308,14 +379,53 @@ internal interface LedgerDao {
         id: String?,
         limit: Int,
     ): List<EntryRow>
+
+    @Query(
+        """SELECT e.* FROM entries e WHERE e.status = :status
+        AND (:from IS NULL OR e.date >= :from) AND (:through IS NULL OR e.date <= :through)
+        AND (:kind IS NULL OR e.kind = :kind)
+        AND (:accountId IS NULL OR EXISTS (SELECT 1 FROM postings p WHERE p.entryId = e.id AND p.accountId = :accountId))
+        AND (:categoryId IS NULL OR EXISTS (
+            SELECT 1 FROM allocations al LEFT JOIN categories c ON c.id = al.categoryId
+            WHERE al.entryId = e.id AND (al.categoryId = :categoryId OR c.parentId = :categoryId)))
+        AND (:tagId IS NULL OR EXISTS (SELECT 1 FROM entry_tags et WHERE et.entryId = e.id AND et.tagId = :tagId))
+        AND (:text = '' OR instr(lower(e.merchant), lower(:text)) > 0 OR instr(lower(e.note), lower(:text)) > 0
+            OR EXISTS (SELECT 1 FROM receipt_lines r WHERE r.entryId = e.id AND instr(lower(r.description), lower(:text)) > 0))
+        AND (:amountCurrency IS NULL OR EXISTS (
+            SELECT 1 FROM postings p JOIN accounts a ON a.id = p.accountId
+            WHERE p.entryId = e.id AND a.currency = :amountCurrency AND a.scale = :amountScale
+            AND ((p.amountMinor BETWEEN :minimum AND :maximum) OR (p.amountMinor BETWEEN -:maximum AND -:minimum))))
+        AND (:date IS NULL OR e.date < :date OR (e.date = :date AND e.time < :time)
+            OR (e.date = :date AND e.time = :time AND e.id < :id))
+        ORDER BY e.date DESC, e.time DESC, e.id DESC LIMIT :limit""",
+    )
+    suspend fun search(
+        status: String,
+        from: String?,
+        through: String?,
+        kind: String?,
+        accountId: String?,
+        categoryId: String?,
+        tagId: String?,
+        text: String,
+        amountCurrency: String?,
+        amountScale: Int?,
+        minimum: Long,
+        maximum: Long,
+        date: String?,
+        time: String?,
+        id: String?,
+        limit: Int,
+    ): List<EntryRow>
 }
 
 @Database(
     entities = [
         AccountGroupRow::class, BookSettingsRow::class, AccountRow::class, CategoryRow::class,
-        EntryRow::class, PostingRow::class, AllocationRow::class, ReceiptLineRow::class, DraftRow::class,
+        EntryRow::class, PostingRow::class, AllocationRow::class, ReceiptLineRow::class,
+        TagRow::class, EntryTagRow::class, TemplateRow::class, DraftRow::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 internal abstract class LedgerDatabase : RoomDatabase() {
@@ -329,7 +439,7 @@ internal fun ledgerDatabase(
     Room
         .databaseBuilder(context, LedgerDatabase::class.java, name)
         .openHelperFactory(PreservingSQLiteFactory())
-        .addMigrations(ledgerMigration1To2, ledgerMigration2To3, ledgerMigration3To4)
+        .addMigrations(ledgerMigration1To2, ledgerMigration2To3, ledgerMigration3To4, ledgerMigration4To5)
         .build()
 
 internal val ledgerMigration1To2 =
@@ -361,5 +471,18 @@ internal val ledgerMigration3To4 =
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS receipt_lines (entryId TEXT NOT NULL, id TEXT NOT NULL, position INTEGER NOT NULL, description TEXT NOT NULL, merchantMinor INTEGER NOT NULL, PRIMARY KEY(entryId, id), FOREIGN KEY(entryId, id) REFERENCES allocations(entryId, id) ON DELETE CASCADE)",
             )
+        }
+    }
+
+internal val ledgerMigration4To5 =
+    object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS tags (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, archived INTEGER NOT NULL)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_tags_name ON tags(name)")
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS entry_tags (entryId TEXT NOT NULL, tagId TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(entryId, tagId), FOREIGN KEY(entryId) REFERENCES entries(id) ON DELETE CASCADE, FOREIGN KEY(tagId) REFERENCES tags(id) ON DELETE NO ACTION)",
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_entry_tags_tagId ON entry_tags(tagId)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS templates (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL)")
         }
     }

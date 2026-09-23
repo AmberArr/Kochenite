@@ -9,6 +9,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.Allocation
+import moe.frost.kochenite.domain.ledger.AllocationSelection
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.CategoryTotal
@@ -17,8 +18,10 @@ import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryInput
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.EntryTemplate
 import moe.frost.kochenite.domain.ledger.InvalidReason
 import moe.frost.kochenite.domain.ledger.LedgerCursor
+import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerPage
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.Money
@@ -76,6 +79,7 @@ class RoomLedger internal constructor(
     private val dao = db.ledger()
     val accountRepository: moe.frost.kochenite.domain.ledger.AccountRepository = RoomAccounts(db, this)
     val categoryRepository: moe.frost.kochenite.domain.ledger.CategoryRepository = RoomCategories(db)
+    val tagRepository: moe.frost.kochenite.domain.ledger.TagRepository = RoomTags(db)
     val settingsRepository: moe.frost.kochenite.domain.ledger.SettingsRepository = RoomSettings(db, this)
 
     private fun token() = UUID.randomUUID().toString()
@@ -126,6 +130,102 @@ class RoomLedger internal constructor(
         }
 
     suspend fun incompleteDrafts(): LedgerResult<List<Draft>> = storageResult { dao.incompleteDrafts().map { it.model() } }
+
+    suspend fun templates(): LedgerResult<List<EntryTemplate>> =
+        storageResult {
+            dao.templates().map { EntryTemplate(it.id, it.name, DraftRow(it.id, it.id, "", null, false, it.payload).model().input) }
+        }
+
+    suspend fun saveTemplate(template: EntryTemplate): LedgerResult<EntryTemplate> =
+        storageResult {
+            db.withTransaction {
+                if (!validId(template.id) || template.name.isBlank() || template.name.length > 100 ||
+                    template.input.kind in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT) ||
+                    template.input.purchaseId != null
+                ) {
+                    invalid(InvalidReason.STATE)
+                }
+                if (dao.template(template.id) != null) conflict()
+                val row = Draft(template.id, template.id, "", template.input).row()
+                if (row.payload.length > 500000) invalid(InvalidReason.TEXT_TOO_LONG)
+                dao.insertTemplate(TemplateRow(template.id, template.name.trim(), row.payload))
+                template.copy(name = template.name.trim())
+            }
+        }
+
+    suspend fun deleteTemplate(id: String): LedgerResult<Unit> =
+        storageResult {
+            db.withTransaction {
+                if (dao.template(id) == null) missing()
+                dao.deleteTemplate(id)
+            }
+        }
+
+    private fun freshInput(input: EntryInput): EntryInput {
+        val ids = input.allocations.associate { it.id to token() }
+        return input.copy(
+            date = today(),
+            time = LocalTime.now().withNano(0),
+            purchaseId = null,
+            allocations = input.allocations.map { it.copy(id = ids.getValue(it.id)) },
+            receiptLines = input.receiptLines.map { it.copy(id = ids[it.id] ?: token()) },
+        )
+    }
+
+    private suspend fun newDraft(input: EntryInput): Draft {
+        val fresh = freshInput(input)
+        val account = dao.accounts().find { it.id == fresh.accountId }?.model()
+        val draft =
+            Draft(token(), token(), token(), fresh, amountText = fresh.amountMinor?.let { account?.currency?.formatMinor(it) } ?: "")
+        dao.insertDraft(draft.row())
+        return draft
+    }
+
+    suspend fun copyEntry(id: String): LedgerResult<Draft> =
+        storageResult {
+            db.withTransaction {
+                val source = dao.entry(id) ?: missing()
+                newDraft(model(source).input)
+            }
+        }
+
+    suspend fun applyTemplate(id: String): LedgerResult<Draft> =
+        storageResult {
+            db.withTransaction {
+                val row = dao.template(id) ?: missing()
+                val input = DraftRow(id, id, "", null, false, row.payload).model().input
+                newDraft(input)
+            }
+        }
+
+    suspend fun bulkCategorize(
+        selections: List<AllocationSelection>,
+        categoryId: String?,
+    ): LedgerResult<Int> =
+        storageResult {
+            db.withTransaction {
+                if (selections.isEmpty() || selections.size > 1000 ||
+                    selections.map { it.entryId to it.allocationId }.distinct().size != selections.size
+                ) {
+                    invalid(InvalidReason.STATE)
+                }
+                val category = categoryId?.let { id -> dao.categories().find { it.id == id } ?: invalid(InvalidReason.CATEGORY) }
+                if (category?.archived == true) invalid(InvalidReason.CATEGORY)
+                val entries = mutableMapOf<String, EntryRow>()
+                for (selection in selections) {
+                    val row = dao.entry(selection.entryId) ?: conflict()
+                    if (row.status != EntryStatus.POSTED.name || row.token != selection.expectedToken) conflict()
+                    if (dao.allocation(selection.entryId, selection.allocationId) == null) conflict()
+                    val kind = if (row.kind == EntryKind.INCOME.name) CategoryKind.INCOME else CategoryKind.EXPENSE
+                    if (category != null && CategoryKind.valueOf(category.kind) != kind) invalid(InvalidReason.CATEGORY)
+                    entries[row.id] = row
+                }
+                selections.forEach { dao.setAllocationCategory(it.entryId, it.allocationId, categoryId) }
+                entries.values.forEach { dao.updateEntry(it.copy(token = token())) }
+                afterWrite()
+                selections.size
+            }
+        }
 
     override suspend fun discardDraft(
         draftId: String,
@@ -184,6 +284,47 @@ class RoomLedger internal constructor(
                     } else {
                         null
                     }
+                LedgerPage(entries, next)
+            }
+        }
+
+    suspend fun search(
+        filter: LedgerFilter,
+        after: LedgerCursor? = null,
+        limit: Int = 50,
+    ): LedgerResult<LedgerPage> =
+        storageResult {
+            val from = filter.from
+            val through = filter.through
+            if (limit !in 1..200 || filter.text.length > 200 ||
+                (from != null && through != null && from > through) ||
+                ((filter.minimumMinor != null || filter.maximumMinor != null) && filter.amountCurrency == null) ||
+                (filter.minimumMinor ?: 0L) < 0 || (filter.maximumMinor ?: Long.MAX_VALUE) < (filter.minimumMinor ?: 0L)
+            ) {
+                invalid(InvalidReason.STATE)
+            }
+            db.withTransaction {
+                val rows =
+                    dao.search(
+                        filter.status.name,
+                        from?.toString(),
+                        through?.toString(),
+                        filter.kind?.name,
+                        filter.accountId,
+                        filter.categoryId,
+                        filter.tagId,
+                        filter.text.trim(),
+                        filter.amountCurrency?.code,
+                        filter.amountCurrency?.scale,
+                        filter.minimumMinor ?: 0L,
+                        filter.maximumMinor ?: Long.MAX_VALUE,
+                        after?.date?.toString(),
+                        after?.time?.toString(),
+                        after?.id,
+                        limit + 1,
+                    )
+                val entries = rows.take(limit).map { model(it) }
+                val next = if (rows.size > limit) entries.last().let { LedgerCursor(it.input.date, it.input.time, it.id) } else null
                 LedgerPage(entries, next)
             }
         }
@@ -326,6 +467,11 @@ class RoomLedger internal constructor(
                     if (runCatching { lineCurrency.parseMinor(text) }.getOrNull() != line.merchantMinor) invalid(InvalidReason.ALLOCATIONS)
                 }
                 val valid = validate(draft.input)
+                val priorTagIds = if (original == null) emptyList() else dao.entryTags(original.id)
+                for (id in draft.input.tagIds) {
+                    val tag = dao.tag(id) ?: invalid(InvalidReason.TAG)
+                    if (tag.archived && id !in priorTagIds) invalid(InvalidReason.TAG)
+                }
                 draft.input.purchaseId?.let {
                     if (it == draft.entryId || dao.entry(it)?.kind != EntryKind.EXPENSE.name) invalid(InvalidReason.REFUND_LINK)
                 }
@@ -361,6 +507,7 @@ class RoomLedger internal constructor(
                 } else {
                     dao.deletePostings(row.id)
                     dao.deleteReceiptLines(row.id)
+                    dao.deleteEntryTags(row.id)
                     dao.deleteAllocations(row.id)
                     dao.updateEntry(row)
                 }
@@ -374,6 +521,7 @@ class RoomLedger internal constructor(
                 input.receiptLines.forEachIndexed { position, line ->
                     dao.insertReceiptLine(ReceiptLineRow(row.id, line.id, position, line.description, line.merchantMinor))
                 }
+                input.tagIds.forEachIndexed { position, id -> dao.insertEntryTag(EntryTagRow(row.id, id, position)) }
                 afterWrite()
                 // SQLite SUM detects overflow. Check both removed and newly affected accounts before commit.
                 val affected = valid.postings.map { it.accountId } + listOfNotNull(original?.accountId, original?.destinationAccountId)
@@ -430,6 +578,7 @@ class RoomLedger internal constructor(
     private suspend fun model(row: EntryRow): SavedEntry {
         val allocations = dao.allocations(row.id).map { Allocation(it.id, it.amountMinor, it.categoryId) }
         val receiptLines = dao.receiptLines(row.id).map { ReceiptLine(it.id, it.description, it.merchantMinor) }
+        val tagIds = dao.entryTags(row.id)
         val money = row.merchantMinor?.let { Money(it, BookCurrency(row.merchantCurrency!!, row.merchantScale!!)) }
         return SavedEntry(
             row.id,
@@ -449,6 +598,7 @@ class RoomLedger internal constructor(
                 money,
                 row.purchaseId,
                 receiptLines,
+                tagIds,
             ),
         )
     }

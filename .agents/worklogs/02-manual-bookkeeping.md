@@ -173,3 +173,40 @@ The existing incomplete/refund UI tests initially raced asynchronous navigation;
 waiting for the target route resolved this and the full runner passed. Sanitized
 evidence is in ignored `.local/financial-evidence/instrumentation.json`. Only
 synthetic debug records were used. Next action: milestone 2.6.
+
+## Milestone 2.6 — September 23, 2026
+
+Added Room schema v5 for tags, entry-tag links and reusable templates with a
+preserving v4→v5 migration. Draft JSON remains backward compatible. Posted and
+trashed ledger entries now have bounded keyset search over merchant/payee,
+notes and receipt-line descriptions, with date, account, category including
+direct/child allocations, tag, kind and selected-currency amount filters.
+Draft and incomplete status views remain separate lists; their posted/trash
+search controls are hidden so filters never appear to apply when they do not.
+
+Tags can be created, renamed and archived. Copying makes a new today-dated
+draft with new entry and allocation IDs and no purchase/refund link. Templates
+retain selected fields and optional amounts/splits; applying one creates a
+draft and never posts automatically. Archived or missing referenced selections
+must be corrected before confirmation. Allocation-row bulk categorization
+previews selected row count and totals by currency, compares all source tokens
+inside one write transaction and updates only category assignments. Stale
+selections and injected failures roll back the entire batch.
+
+Verification: `./gradlew spotlessApply verify :app:assembleDebug
+:app:assembleDebugAndroidTest :persistence:assembleDebugAndroidTest` passed.
+On the rediscovered OnePlus 6T, the explicit-serial runner passed 36 assertions:
+21 financial storage, five setup, eight UI and two process-restart checks.
+New tests cover v4→v5 preservation, Unicode and combined filters, tag archival,
+copy/template draft identity, stale/rollback bulk behavior, and UI journeys for
+search, copying, templates and a selected allocation category change with exact
+balance/spending preservation. Sanitized results are in ignored
+`.local/financial-evidence/instrumentation.json`.
+
+During UI verification, returning from a detail route could restore a saved
+detail rather than the Transactions tab. Tab navigation now pops to an
+already-open tab, retaining its filter state. A long transaction list also
+required scrolling to the filter bar before a test could tap Trash; the
+physical-device journey passed after this correction. Only synthetic debug
+records were used. Milestones 2.7–2.9 remain pending; real bookkeeping is
+still gated by final validation and the separate signing-key backup check.

@@ -73,16 +73,20 @@ import kotlinx.serialization.Serializable
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountGroup
 import moe.frost.kochenite.domain.ledger.Allocation
+import moe.frost.kochenite.domain.ledger.AllocationSelection
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.Category
 import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.EntryTemplate
+import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.Money
 import moe.frost.kochenite.domain.ledger.ReceiptLine
 import moe.frost.kochenite.domain.ledger.SavedEntry
+import moe.frost.kochenite.domain.ledger.Tag
 import moe.frost.kochenite.domain.ledger.proportionalAllocations
 import java.time.LocalDate
 import java.time.LocalTime
@@ -100,6 +104,18 @@ import java.util.UUID
 @Serializable internal data object SettingsRoute
 
 @Serializable internal data object CategoriesRoute
+
+@Serializable internal data object TagsRoute
+
+@Serializable internal data class TagRoute(
+    val id: String? = null,
+)
+
+@Serializable internal data object TemplatesRoute
+
+@Serializable internal data class TemplateSaveRoute(
+    val entryId: String,
+)
 
 @Serializable internal data object GroupsRoute
 
@@ -261,6 +277,15 @@ internal fun BookScreen(
 
         fun push() {
             model.clearError()
+            val returnedToTab =
+                when (route) {
+                    OverviewRoute -> nav.popBackStack<OverviewRoute>(false)
+                    TransactionsRoute -> nav.popBackStack<TransactionsRoute>(false)
+                    AccountsRoute -> nav.popBackStack<AccountsRoute>(false)
+                    ReportsRoute -> nav.popBackStack<ReportsRoute>(false)
+                    else -> false
+                }
+            if (returnedToTab) return
             nav.navigate(route) {
                 launchSingleTop = true
                 if (tabs.any { it.first == route }) {
@@ -333,8 +358,11 @@ internal fun BookScreen(
                     composable<TransactionsRoute> {
                         TransactionsPanel(
                             state,
+                            model,
+                            current?.destination?.hasRoute(TransactionsRoute::class) == true,
                             { navigate(EntryDraftRoute(it)) },
                             { navigate(EntryDetailRoute(it)) },
+                            { navigate(TemplatesRoute) },
                         )
                     }
                     composable<ReportsRoute> { ReportPanel(state) }
@@ -346,7 +374,7 @@ internal fun BookScreen(
                             { navigate(GroupsRoute) },
                         )
                     }
-                    composable<SettingsRoute> { SettingsForm(state, model, { navigate(CategoriesRoute) }) }
+                    composable<SettingsRoute> { SettingsForm(state, model, { navigate(CategoriesRoute) }, { navigate(TagsRoute) }) }
                     composable<AccountRoute> { entry ->
                         val id = entry.toRoute<AccountRoute>().id
                         Row {
@@ -365,6 +393,16 @@ internal fun BookScreen(
                     }
                     composable<CategoriesRoute> { CategoriesPanel(state) { navigate(CategoryRoute(it)) } }
                     composable<CategoryRoute> { CategoryForm(it.toRoute<CategoryRoute>().id, state, model) }
+                    composable<TagsRoute> { TagsPanel(state) { navigate(TagRoute(it)) } }
+                    composable<TagRoute> { TagForm(it.toRoute<TagRoute>().id, state, model) }
+                    composable<TemplatesRoute> {
+                        TemplatesPanel(state, model) { id ->
+                            model.applyTemplate(id) { draftId -> navigate(EntryDraftRoute(draftId)) }
+                        }
+                    }
+                    composable<TemplateSaveRoute> {
+                        TemplateSaveForm(it.toRoute<TemplateSaveRoute>().entryId, detail, state, model)
+                    }
                     composable<GroupsRoute> { GroupsPanel(state) { navigate(GroupRoute(it)) } }
                     composable<GroupRoute> { GroupForm(it.toRoute<GroupRoute>().id, state, model) }
                     composable<AdjustmentRoute> { AdjustmentForm(it.toRoute<AdjustmentRoute>().id, state, model) }
@@ -391,9 +429,13 @@ internal fun BookScreen(
                             { draftId -> nav.navigate(EntryDraftRoute(draftId)) },
                             { allocationId ->
                                 detail?.let { purchase ->
-                                    model.startLinkedRefund(purchase, allocationId) { draftId -> nav.navigate(EntryDraftRoute(draftId)) }
+                                    model.startLinkedRefund(purchase, allocationId) { draftId ->
+                                        nav.navigate(EntryDraftRoute(draftId))
+                                    }
                                 }
                             },
+                            { model.copyEntry(id) { draftId -> nav.navigate(EntryDraftRoute(draftId)) } },
+                            { navigate(TemplateSaveRoute(id)) },
                         )
                     }
                 }
@@ -633,10 +675,60 @@ internal fun BookScreen(
 
 @Composable private fun TransactionsPanel(
     state: BookState,
+    model: BookViewModel,
+    isActive: Boolean,
     openDraft: (String) -> Unit,
     openEntry: (String) -> Unit,
+    openTemplates: () -> Unit,
 ) {
     var filter by rememberSaveable { mutableStateOf("posted") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var fromText by rememberSaveable { mutableStateOf("") }
+    var throughText by rememberSaveable { mutableStateOf("") }
+    var accountId by rememberSaveable { mutableStateOf<String?>(null) }
+    var categoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var tagId by rememberSaveable { mutableStateOf<String?>(null) }
+    var kind by rememberSaveable { mutableStateOf<String?>(null) }
+    var amountCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var minimumText by rememberSaveable { mutableStateOf("") }
+    var maximumText by rememberSaveable { mutableStateOf("") }
+    var bulk by rememberSaveable { mutableStateOf(false) }
+    var selected by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var targetCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    val amountCurrency =
+        state.accounts
+            .map { it.account.currency }
+            .distinct()
+            .find { it.code == amountCode }
+    val from = if (fromText.isBlank()) null else runCatching { LocalDate.parse(fromText) }.getOrNull()
+    val through = if (throughText.isBlank()) null else runCatching { LocalDate.parse(throughText) }.getOrNull()
+    val minimum = if (minimumText.isBlank()) null else runCatching { amountCurrency?.parseMinor(minimumText) }.getOrNull()
+    val maximum = if (maximumText.isBlank()) null else runCatching { amountCurrency?.parseMinor(maximumText) }.getOrNull()
+    val valid =
+        (fromText.isBlank() || from != null) && (throughText.isBlank() || through != null) &&
+            (minimumText.isBlank() || minimum != null) && (maximumText.isBlank() || maximum != null) &&
+            ((minimumText.isBlank() && maximumText.isBlank()) || amountCurrency != null)
+    val searchKey =
+        listOf(filter, query, fromText, throughText, accountId, categoryId, tagId, kind, amountCode, minimumText, maximumText, valid)
+    LaunchedEffect(searchKey, isActive) {
+        if (isActive && valid && filter in setOf("posted", "trash")) {
+            model.search(
+                LedgerFilter(
+                    status = if (filter == "trash") EntryStatus.TRASH else EntryStatus.POSTED,
+                    text = query,
+                    from = from,
+                    through = through,
+                    accountId = accountId,
+                    categoryId = categoryId,
+                    tagId = tagId,
+                    kind = kind?.let(EntryKind::valueOf),
+                    amountCurrency = amountCurrency,
+                    minimumMinor = minimum,
+                    maximumMinor = maximum,
+                ),
+            )
+        }
+    }
     Form(R.string.transactions, state) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(
@@ -648,6 +740,51 @@ internal fun BookScreen(
                 TextButton(onClick = { filter = key }) { Text(stringResource(label)) }
             }
         }
+        TextButton(onClick = openTemplates) { Text(stringResource(R.string.templates)) }
+        if (filter == "posted" || filter == "trash") {
+            Field(R.string.search, query, { query = it })
+            Field(R.string.from_date, fromText, { fromText = it })
+            Field(R.string.through_date, throughText, { throughText = it })
+            Choice(
+                R.string.account_name,
+                state.accounts
+                    .find { it.account.id == accountId }
+                    ?.account
+                    ?.name ?: stringResource(R.string.any_account),
+                listOf(null to stringResource(R.string.any_account)) + state.accounts.map { it.account.id to it.account.name },
+            ) { accountId = it }
+            Choice(
+                R.string.category,
+                state.categories.find { it.id == categoryId }?.name ?: stringResource(R.string.any_category),
+                listOf(null to stringResource(R.string.any_category)) + state.categories.map { it.id to it.name },
+            ) { categoryId = it }
+            Choice(
+                R.string.tags,
+                state.tags.find { it.id == tagId }?.name ?: stringResource(R.string.any_tag),
+                listOf(null to stringResource(R.string.any_tag)) + state.tags.map { it.id to it.name },
+            ) { tagId = it }
+            Choice(
+                R.string.transaction_kind,
+                kind ?: stringResource(R.string.any_kind),
+                listOf(null to stringResource(R.string.any_kind)) + EntryKind.entries.map { it.name to it.name },
+            ) { kind = it }
+            Choice(
+                R.string.amount_currency,
+                amountCurrency?.code ?: stringResource(R.string.any_currency),
+                listOf(null to stringResource(R.string.any_currency)) +
+                    state.accounts
+                        .map { it.account.currency }
+                        .distinct()
+                        .map { it.code to it.code },
+            ) {
+                amountCode = it
+                minimumText = ""
+                maximumText = ""
+            }
+            Field(R.string.minimum_amount, minimumText, { minimumText = it }, number = true)
+            Field(R.string.maximum_amount, maximumText, { maximumText = it }, number = true)
+            if (!valid) Text(stringResource(R.string.correct_fields), color = MaterialTheme.colorScheme.error)
+        }
         if (filter == "draft" || filter == "incomplete") {
             val drafts = if (filter == "incomplete") state.incompleteDrafts else state.drafts.filter { !it.incomplete }
             drafts.forEach { draft ->
@@ -656,7 +793,60 @@ internal fun BookScreen(
                 }
             }
         } else {
-            val entries = if (filter == "trash") state.trashed else state.entries
+            val entries =
+                if (valid) {
+                    state.searchEntries.filter { it.status == if (filter == "trash") EntryStatus.TRASH else EntryStatus.POSTED }
+                } else {
+                    emptyList()
+                }
+            if (filter == "posted") {
+                TextButton(onClick = {
+                    bulk = !bulk
+                    selected = emptyList()
+                }) { Text(stringResource(R.string.bulk_category)) }
+            }
+            if (bulk && filter == "posted") {
+                val selectedRows =
+                    entries
+                        .flatMap { entry -> entry.input.allocations.map { allocation -> entry to allocation } }
+                        .filter { (entry, allocation) -> selected.any { it.startsWith("${entry.id}|${allocation.id}|") } }
+                Text(stringResource(R.string.selected_rows, selectedRows.size))
+                selectedRows
+                    .groupBy { (entry, _) ->
+                        state.accounts
+                            .find { it.account.id == entry.input.accountId }
+                            ?.account
+                            ?.currency
+                    }.forEach { (currency, rows) ->
+                        val amount =
+                            runCatching {
+                                rows.fold(0L) { sum, (_, allocation) -> Math.addExact(sum, allocation.amountMinor) }
+                            }.getOrNull()
+                        Text("${currency?.code.orEmpty()} ${amount?.let { currency?.formatMinor(it) } ?: "?"}")
+                    }
+                val kinds =
+                    selectedRows
+                        .map {
+                            if (it.first.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+                        }.distinct()
+                val choices = state.categories.filter { !it.archived && (kinds.isEmpty() || it.kind in kinds) }
+                Choice(
+                    R.string.category,
+                    state.categories.find { it.id == targetCategory }?.name ?: stringResource(R.string.uncategorized_expense),
+                    listOf(null to stringResource(R.string.uncategorized_expense)) + choices.map { it.id to it.name },
+                ) { targetCategory = it }
+                Button(onClick = {
+                    val selections =
+                        selected.map { row ->
+                            val parts = row.split('|', limit = 3)
+                            AllocationSelection(parts[0], parts[1], parts[2])
+                        }
+                    model.bulkCategorize(selections, targetCategory)
+                }, enabled = selected.isNotEmpty() && kinds.size == 1 && !state.saving) {
+                    Text(stringResource(R.string.apply_bulk_category))
+                }
+                if (kinds.size > 1) Text(stringResource(R.string.select_one_category_kind), color = MaterialTheme.colorScheme.error)
+            }
             if (entries.isEmpty()) Text(stringResource(R.string.no_entries))
             entries.forEach { entry ->
                 val account = state.accounts.find { it.account.id == entry.input.accountId }?.account
@@ -669,7 +859,36 @@ internal fun BookScreen(
                         ).orEmpty()}",
                     )
                 }
+                if (bulk && filter == "posted") {
+                    entry.input.allocations.forEach { allocation ->
+                        val key = "${entry.id}|${allocation.id}|${entry.token}"
+                        val checked = selected.any { it.startsWith("${entry.id}|${allocation.id}|") }
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("bulk-row-${entry.id}-${allocation.id}").clickable {
+                                selected =
+                                    if (checked) selected.filterNot { it.startsWith("${entry.id}|${allocation.id}|") } else selected + key
+                            },
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Checkbox(checked, { value ->
+                                selected =
+                                    if (value) {
+                                        selected + key
+                                    } else {
+                                        selected.filterNot {
+                                            it.startsWith("${entry.id}|${allocation.id}|")
+                                        }
+                                    }
+                            })
+                            val categoryName =
+                                state.categories.find { it.id == allocation.categoryId }?.name
+                                    ?: stringResource(R.string.uncategorized_expense)
+                            Text("$categoryName · ${account?.currency?.formatMinor(allocation.amountMinor).orEmpty()}")
+                        }
+                    }
+                }
             }
+            if (valid && state.searchNext != null) TextButton(onClick = model::loadMoreSearch) { Text(stringResource(R.string.load_more)) }
         }
     }
 }
@@ -681,6 +900,8 @@ internal fun BookScreen(
     model: BookViewModel,
     edit: (String) -> Unit,
     refundAllocation: (String) -> Unit,
+    copy: () -> Unit,
+    saveTemplate: () -> Unit,
 ) {
     var confirmPurge by rememberSaveable(id) { mutableStateOf(false) }
     if (entry?.id != id) {
@@ -715,6 +936,11 @@ internal fun BookScreen(
             }
         }
         if (entry.input.note.isNotBlank()) Text(entry.input.note)
+        entry.input.tagIds.forEach { tagId -> state.tags.find { it.id == tagId }?.let { Text(it.name) } }
+        if (entry.status == EntryStatus.POSTED && entry.input.kind !in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)) {
+            TextButton(onClick = copy) { Text(stringResource(R.string.copy_as_draft)) }
+            TextButton(onClick = saveTemplate) { Text(stringResource(R.string.save_as_template)) }
+        }
         if (entry.status == EntryStatus.POSTED) {
             if (entry.input.kind !in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)) {
                 TextButton(onClick = { model.startEdit(entry.id, edit) }) { Text(stringResource(R.string.edit_transaction)) }
@@ -1138,7 +1364,9 @@ internal fun BookScreen(
                 }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.itemize_receipt)) }
             } else {
                 TextButton(onClick = {
-                    model.updateEditor { draft -> draft.copy(lineTexts = emptyMap(), input = draft.input.copy(receiptLines = emptyList())) }
+                    model.updateEditor { draft ->
+                        draft.copy(lineTexts = emptyMap(), input = draft.input.copy(receiptLines = emptyList()))
+                    }
                 }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.remove_itemization)) }
             }
             val allocationTotal =
@@ -1184,8 +1412,36 @@ internal fun BookScreen(
                 )
             }
         }
+        Text(stringResource(R.string.tags), style = MaterialTheme.typography.titleMedium)
+        state.tags.filter { !it.archived || it.id in current.input.tagIds }.forEach { tag ->
+            val checked = tag.id in current.input.tagIds
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                    model.updateEditor { draft ->
+                        draft.copy(
+                            input = draft.input.copy(tagIds = if (checked) draft.input.tagIds - tag.id else draft.input.tagIds + tag.id),
+                        )
+                    }
+                },
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Checkbox(checked, { selected ->
+                    model.updateEditor { draft ->
+                        draft.copy(
+                            input =
+                                draft.input.copy(
+                                    tagIds = if (selected) draft.input.tagIds + tag.id else draft.input.tagIds - tag.id,
+                                ),
+                        )
+                    }
+                })
+                Text(tag.name)
+            }
+        }
         Field(R.string.notes, current.input.note, { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } })
-        val unknown = current.input.amountMinor == null || (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
+        val unknown =
+            current.input.amountMinor == null ||
+                (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
         if (unknown) {
             TextButton(
                 onClick = saveIncomplete,
@@ -1217,6 +1473,7 @@ internal fun BookScreen(
     state: BookState,
     model: BookViewModel,
     categories: () -> Unit,
+    tags: () -> Unit,
 ) {
     var code by rememberSaveable { mutableStateOf(state.settings?.displayCurrency?.code ?: "") }
     Form(R.string.settings, state) {
@@ -1225,6 +1482,116 @@ internal fun BookScreen(
             currency(code)?.let(model::display) ?: model.error(R.string.currency_error)
         }, enabled = !state.saving) { Text(stringResource(R.string.save)) }
         TextButton(onClick = categories) { Text(stringResource(R.string.categories)) }
+        TextButton(onClick = tags) { Text(stringResource(R.string.tags)) }
+    }
+}
+
+@Composable private fun TagsPanel(
+    state: BookState,
+    edit: (String?) -> Unit,
+) {
+    Form(R.string.tags, state) {
+        TextButton(onClick = { edit(null) }) { Text(stringResource(R.string.new_tag)) }
+        state.tags.forEach { tag ->
+            TextButton(onClick = { edit(tag.id) }, modifier = Modifier.heightIn(min = 48.dp)) { Text(tag.name) }
+            if (tag.archived) Text(stringResource(R.string.archived))
+        }
+    }
+}
+
+@Composable private fun TagForm(
+    id: String?,
+    state: BookState,
+    model: BookViewModel,
+) {
+    val old = remember(id) { state.tags.find { it.id == id } }
+    val newId = rememberSaveable { UUID.randomUUID().toString() }
+    var name by rememberSaveable(id) { mutableStateOf(old?.name ?: "") }
+    var archived by rememberSaveable(id) { mutableStateOf(old?.archived ?: false) }
+    Form(R.string.tags, state) {
+        Field(R.string.tag_name, name, { name = it })
+        if (old != null) Toggle(R.string.archived, archived) { archived = it }
+        Button(onClick = { model.saveTag(Tag(old?.id ?: newId, name.trim(), archived), old) }, enabled = !state.saving) {
+            Text(stringResource(R.string.save))
+        }
+    }
+}
+
+@Composable private fun TemplatesPanel(
+    state: BookState,
+    model: BookViewModel,
+    apply: (String) -> Unit,
+) {
+    var confirmDelete by rememberSaveable { mutableStateOf<String?>(null) }
+    Form(R.string.templates, state) {
+        if (state.templates.isEmpty()) Text(stringResource(R.string.no_templates))
+        state.templates.forEach { template ->
+            Text(template.name, style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = { apply(template.id) }, modifier = Modifier.heightIn(min = 48.dp).testTag("template-use-${template.id}")) {
+                Text(stringResource(R.string.use_template))
+            }
+            if (confirmDelete == template.id) {
+                Button(onClick = {
+                    model.deleteTemplate(template.id)
+                    confirmDelete = null
+                }) {
+                    Text(stringResource(R.string.confirm_delete))
+                }
+                TextButton(onClick = { confirmDelete = null }) { Text(stringResource(R.string.cancel)) }
+            } else {
+                TextButton(onClick = { confirmDelete = template.id }) { Text(stringResource(R.string.delete_template)) }
+            }
+        }
+    }
+}
+
+@Composable private fun TemplateSaveForm(
+    entryId: String,
+    entry: SavedEntry?,
+    state: BookState,
+    model: BookViewModel,
+) {
+    var name by rememberSaveable(entryId) { mutableStateOf("") }
+    var includeAmounts by rememberSaveable(entryId) { mutableStateOf(false) }
+    var includeSplits by rememberSaveable(entryId) { mutableStateOf(false) }
+    val id = rememberSaveable(entryId) { UUID.randomUUID().toString() }
+    Form(R.string.save_as_template, state) {
+        if (entry?.id != entryId) {
+            CircularProgressIndicator()
+            return@Form
+        }
+        Field(R.string.template_name, name, { name = it })
+        Toggle(R.string.include_template_amounts, includeAmounts) { includeAmounts = it }
+        Toggle(R.string.include_template_splits, includeSplits) { includeSplits = it }
+        Button(onClick = {
+            val source = entry.input
+            val sourceAmount = source.amountMinor
+            val allocations =
+                if (source.kind == EntryKind.TRANSFER) {
+                    emptyList()
+                } else if (includeSplits) {
+                    source.allocations.map { if (includeAmounts) it else it.copy(amountMinor = 0) }
+                } else if (includeAmounts && sourceAmount != null) {
+                    listOf(Allocation(UUID.randomUUID().toString(), sourceAmount, source.allocations.firstOrNull()?.categoryId))
+                } else {
+                    emptyList()
+                }
+            val input =
+                source.copy(
+                    amountMinor = if (includeAmounts) source.amountMinor else null,
+                    receivedMinor = if (includeAmounts) source.receivedMinor else null,
+                    merchantAmount = if (includeAmounts) source.merchantAmount else null,
+                    allocations = allocations,
+                    receiptLines =
+                        if (includeSplits) {
+                            source.receiptLines.map { if (includeAmounts) it else it.copy(merchantMinor = 0) }
+                        } else {
+                            emptyList()
+                        },
+                    purchaseId = null,
+                )
+            model.saveTemplate(EntryTemplate(id, name.trim(), input))
+        }, enabled = !state.saving && name.isNotBlank()) { Text(stringResource(R.string.save)) }
     }
 }
 

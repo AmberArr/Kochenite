@@ -12,12 +12,24 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import moe.frost.kochenite.domain.ledger.Allocation
+import moe.frost.kochenite.domain.ledger.Category
+import moe.frost.kochenite.domain.ledger.CategoryKind
+import moe.frost.kochenite.domain.ledger.Draft
+import moe.frost.kochenite.domain.ledger.EntryInput
+import moe.frost.kochenite.domain.ledger.EntryKind
+import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.time.LocalDate
+import java.time.LocalTime
 import java.util.UUID
 
 class BookUiDeviceTest {
@@ -144,6 +156,7 @@ class BookUiDeviceTest {
                 (book.page() as LedgerResult.Success).value.entries.any { it.input.merchant == merchant }
             }
         }
+        val posted = (runBlocking { book.page() } as LedgerResult.Success).value.entries.single { it.input.merchant == merchant }
         val after = (runBlocking { book.balance(firstAccount.id) } as LedgerResult.Success).value
         assertEquals(Math.subtractExact(before, 1234L), after)
         assertEquals(0, (runBlocking { book.drafts() } as LedgerResult.Success).value.count { it.input.merchant == merchant })
@@ -163,7 +176,35 @@ class BookUiDeviceTest {
             runBlocking { (book.balance(firstAccount.id) as LedgerResult.Success).value == before }
         }
         compose.waitUntil(15000) { compose.onAllNodesWithText("Move to trash").fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Restore").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("nav-1").assertIsSelected()
+        compose.onAllNodesWithText("Transactions")[0].performScrollTo()
+        compose.onNodeWithText("Trash").performScrollTo().assertIsDisplayed()
+        compose.waitForIdle()
         compose.onNodeWithText("Trash").performClick()
+        assertTrue(
+            (runBlocking { book.search(LedgerFilter(status = EntryStatus.TRASH)) } as LedgerResult.Success).value.entries.any {
+                it.id ==
+                    posted.id
+            },
+        )
+        lateinit var model: BookViewModel
+        compose.activityRule.scenario.onActivity { model = ViewModelProvider(it)[BookViewModel::class.java] }
+        val filterChanged = runCatching { compose.waitUntil(5000) { model.searchFilter.status == EntryStatus.TRASH } }.isSuccess
+        assertTrue("Trash filter did not activate: ${model.searchFilter}", filterChanged)
+        val foundInSearch =
+            runCatching {
+                compose.waitUntil(5000) {
+                    model.state.value.searchEntries
+                        .any { it.id == posted.id && it.status == EntryStatus.TRASH }
+                }
+            }.isSuccess
+        assertTrue(
+            "Trash search status=${model.searchFilter.status}, error=${model.state.value.error}, " +
+                "saving=${model.state.value.saving}, results=${model.state.value.searchEntries.map { it.id to it.status }}",
+            foundInSearch,
+        )
+        compose.waitUntil(15000) { compose.onAllNodesWithText(merchant, substring = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(merchant, substring = true).performScrollTo().performClick()
         compose.onNodeWithText("Restore").performClick()
         compose.waitUntil(15000) {
@@ -354,5 +395,141 @@ class BookUiDeviceTest {
         assertEquals(listOf(335L, 666L), posted.input.allocations.map { it.amountMinor })
         assertEquals(listOf(100L, 200L), posted.input.receiptLines.map { it.merchantMinor })
         assertEquals(Math.subtractExact(before, 1001L), (runBlocking { book.balance(account.id) } as LedgerResult.Success).value)
+    }
+
+    @Test fun tagSearchCopyAndTemplateKeepNewWorkAsDrafts() {
+        ready()
+        val suffix = UUID.randomUUID().toString().take(8)
+        val tagName = "Synthetic trip $suffix"
+        val merchant = "Synthetic 東京 $suffix"
+        val templateName = "Synthetic routine $suffix"
+        val app = context.applicationContext as KocheniteApplication
+        val book = (runBlocking { app.financialStorage.open() } as LedgerResult.Success).value
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("Tags").performClick()
+        compose.onNodeWithText("New tag").performClick()
+        field("Tag name", tagName)
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.tagRepository.list() as LedgerResult.Success).value.any { it.name == tagName } }
+        }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("field-Tag name").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("Add").performClick()
+        field("Amount", "4.00")
+        field("Merchant or payee", merchant)
+        compose.onNodeWithText(tagName).performScrollTo().performClick()
+        compose.onNodeWithText("Post transaction").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.page() as LedgerResult.Success).value.entries.any { it.input.merchant == merchant } }
+        }
+        val posted = (runBlocking { book.page() } as LedgerResult.Success).value.entries.single { it.input.merchant == merchant }
+        assertEquals(1, posted.input.tagIds.size)
+        compose.waitUntil(15000) { compose.onAllNodesWithText("New transaction").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("nav-1").performClick()
+        field("Search merchant, notes, or receipt lines", "東京")
+        compose.waitUntil(15000) { compose.onAllNodesWithText(merchant, substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("choice-Tags").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            compose.onAllNodesWithTag("choice-Tags-option-${posted.input.tagIds.single()}").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("choice-Tags-option-${posted.input.tagIds.single()}").performScrollTo().performClick()
+        compose.onNodeWithText(merchant, substring = true).performScrollTo().performClick()
+        compose.onNodeWithText("Copy as new draft").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.drafts() as LedgerResult.Success).value.any { it.input.merchant == merchant && it.entryId != posted.id } }
+        }
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Discard draft").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Discard draft").performScrollTo().performClick()
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Copy as new draft").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Save as template").performScrollTo().performClick()
+        field("Template name", templateName)
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.templates() as LedgerResult.Success).value.any { it.name == templateName } }
+        }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("field-Template name").fetchSemanticsNodes().isEmpty() }
+        lateinit var model: BookViewModel
+        compose.activityRule.scenario.onActivity { model = ViewModelProvider(it)[BookViewModel::class.java] }
+        compose.waitUntil(15000) { !model.state.value.saving }
+        compose.onNodeWithTag("nav-1").performClick()
+        val returnedToTransactions =
+            runCatching { compose.waitUntil(5000) { compose.onAllNodesWithText("Templates").fetchSemanticsNodes().isNotEmpty() } }.isSuccess
+        assertTrue("Transactions did not open", returnedToTransactions)
+        compose.onNodeWithText("Templates").performScrollTo().performClick()
+        compose.onNodeWithText(templateName).performScrollTo().assertIsDisplayed()
+        val template = (runBlocking { book.templates() } as LedgerResult.Success).value.single { it.name == templateName }
+        compose.onNodeWithTag("template-use-${template.id}").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking {
+                (book.drafts() as LedgerResult.Success).value.any { it.input.merchant == merchant && it.input.amountMinor == null }
+            }
+        }
+        assertEquals(1, (runBlocking { book.page() } as LedgerResult.Success).value.entries.count { it.input.merchant == merchant })
+    }
+
+    @Test fun bulkCategoryPreviewChangesOnlySelectedAllocation() {
+        ready()
+        val suffix = UUID.randomUUID().toString().take(8)
+        val merchant = "Synthetic bulk $suffix"
+        val category = Category(UUID.randomUUID().toString(), "Synthetic bulk category $suffix", CategoryKind.EXPENSE)
+        val app = context.applicationContext as KocheniteApplication
+        val book = (runBlocking { app.financialStorage.open() } as LedgerResult.Success).value
+        val account = (runBlocking { book.accountRepository.list() } as LedgerResult.Success).value.first { !it.account.archived }.account
+        val beforeBalance = (runBlocking { book.balance(account.id) } as LedgerResult.Success).value
+        val date = LocalDate.now()
+        val beforeTotals = (runBlocking { book.totals(date.withDayOfMonth(1), date) } as LedgerResult.Success).value
+        assertTrue(runBlocking { book.categoryRepository.save(category) } is LedgerResult.Success)
+        val allocationId = UUID.randomUUID().toString()
+        val untouchedId = UUID.randomUUID().toString()
+        val input =
+            EntryInput(
+                EntryKind.EXPENSE,
+                date,
+                LocalTime.NOON,
+                account.id,
+                789L,
+                allocations = listOf(Allocation(allocationId, 300L), Allocation(untouchedId, 489L)),
+                merchant = merchant,
+            )
+        val saved =
+            runBlocking {
+                book.saveDraft(Draft(UUID.randomUUID().toString(), UUID.randomUUID().toString(), "", input), null)
+            } as LedgerResult.Success
+        val posted = (runBlocking { book.confirm(saved.value.id, saved.value.token) } as LedgerResult.Success).value
+        lateinit var model: BookViewModel
+        compose.activityRule.scenario.onActivity { model = ViewModelProvider(it)[BookViewModel::class.java] }
+        model.refresh()
+        compose.onNodeWithTag("nav-1").performClick()
+        field("Search merchant, notes, or receipt lines", merchant)
+        compose.waitUntil(15000) { compose.onAllNodesWithText(merchant, substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Bulk categorize allocations").performScrollTo().performClick()
+        compose.onNodeWithTag("bulk-row-${posted.id}-$allocationId").performScrollTo().performClick()
+        compose.onNodeWithText("Selected allocation rows: 1").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithTag("choice-Category")[1].performScrollTo().performClick()
+        compose.onNodeWithTag("choice-Category-option-${category.id}").performScrollTo().performClick()
+        compose.onNodeWithText("Apply category to selected rows").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking {
+                (book.entry(posted.id) as LedgerResult.Success)
+                    .value.input.allocations
+                    .find { it.id == allocationId }
+                    ?.categoryId == category.id
+            }
+        }
+        assertEquals(
+            null,
+            (
+                runBlocking {
+                    book.entry(
+                        posted.id,
+                    )
+                } as LedgerResult.Success
+            ).value.input.allocations.find { it.id == untouchedId }?.categoryId,
+        )
+        assertEquals(Math.subtractExact(beforeBalance, 789L), (runBlocking { book.balance(account.id) } as LedgerResult.Success).value)
+        val afterTotals = (runBlocking { book.totals(date.withDayOfMonth(1), date) } as LedgerResult.Success).value
+        val oldUsd = beforeTotals.find { it.currency == account.currency }
+        val newUsd = afterTotals.single { it.currency == account.currency }
+        assertEquals(Math.addExact(oldUsd?.spendingMinor ?: 0L, 789L), newUsd.spendingMinor)
     }
 }

@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 is in progress; milestones 2.0–2.5 are verified; search, tags, copying, templates and bulk categorization (2.6) are next. Off-machine signing backup is still required before real bookkeeping use.
+Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 is in progress; milestones 2.0–2.6 are verified; reports and current-rate estimates (2.7) are next. Off-machine signing backup is still required before real bookkeeping use.
 
 ## Goal and Agreed Decisions
 

@@ -11,16 +11,22 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.Allocation
+import moe.frost.kochenite.domain.ledger.AllocationSelection
 import moe.frost.kochenite.domain.ledger.BookCurrency
+import moe.frost.kochenite.domain.ledger.Category
+import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryInput
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.EntryTemplate
 import moe.frost.kochenite.domain.ledger.InvalidReason
+import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.Money
 import moe.frost.kochenite.domain.ledger.ReceiptLine
 import moe.frost.kochenite.domain.ledger.SavedEntry
+import moe.frost.kochenite.domain.ledger.Tag
 import moe.frost.kochenite.persistence.PreservingSQLiteFactory
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -398,6 +404,161 @@ class FinancialStorageDeviceTest {
             val ledger = open()
             assertEquals("cash", success(ledger.accounts()).single().id)
             assertTrue(success(ledger.page()).entries.isEmpty())
+        }
+
+    @Test fun version4MigrationAddsTagsAndTemplatesWithoutChangingBalances() =
+        runBlocking {
+            migration.createDatabase(name, 4).use { old ->
+                old.execSQL(
+                    "INSERT INTO accounts (id,name,currency,scale,archived,includeInNetWorth,currencyLocked,groupId,type,position) VALUES ('cash','Cash','USD',2,0,1,0,NULL,'',0)",
+                )
+            }
+            migration.runMigrationsAndValidate(name, 5, true, ledgerMigration4To5).close()
+            val ledger = open()
+            assertEquals("cash", success(ledger.accounts()).single().id)
+            assertEquals(0L, success(ledger.balance("cash")))
+            assertTrue(success(ledger.tagRepository.list()).isEmpty())
+        }
+
+    @Test fun boundedSearchFindsUnicodeReceiptTextAndExactTagCategoryCurrencyFilters() =
+        runBlocking {
+            val ledger = open()
+            seed(ledger)
+            success(ledger.categoryRepository.save(Category("food", "Food", CategoryKind.EXPENSE)))
+            success(ledger.categoryRepository.save(Category("fruit", "Fruit", CategoryKind.EXPENSE, parentId = "food")))
+            success(ledger.tagRepository.save(Tag("trip", "Trip")))
+            val first =
+                post(
+                    ledger,
+                    expense(1200).copy(
+                        merchant = "Café 東京",
+                        allocations = listOf(Allocation("line", 1200, "fruit")),
+                        receiptLines = listOf(ReceiptLine("line", "りんご Apple", 1200)),
+                        tagIds = listOf("trip"),
+                    ),
+                )
+            val second = post(ledger, expense(500).copy(merchant = "Other", note = "Unicode résumé"))
+            assertEquals(listOf(first.id), success(ledger.search(LedgerFilter(text = "東京"))).entries.map { it.id })
+            assertEquals(listOf(first.id), success(ledger.search(LedgerFilter(text = "りんご"))).entries.map { it.id })
+            assertEquals(listOf(second.id), success(ledger.search(LedgerFilter(text = "résumé"))).entries.map { it.id })
+            assertEquals(listOf(first.id), success(ledger.search(LedgerFilter(categoryId = "food"))).entries.map { it.id })
+            assertEquals(listOf(first.id), success(ledger.search(LedgerFilter(tagId = "trip"))).entries.map { it.id })
+            assertEquals(
+                listOf(
+                    first.id,
+                ),
+                success(
+                    ledger.search(LedgerFilter(accountId = "cash", amountCurrency = usd, minimumMinor = 1200, maximumMinor = 1200)),
+                ).entries.map {
+                    it.id
+                },
+            )
+            assertTrue(success(ledger.search(LedgerFilter(amountCurrency = BookCurrency("JPY", 0), minimumMinor = 1200))).entries.isEmpty())
+            val page = success(ledger.search(LedgerFilter(), limit = 1))
+            assertEquals(1, page.entries.size)
+            assertEquals(1, success(ledger.search(LedgerFilter(), page.next, 1)).entries.size)
+            success(ledger.tagRepository.save(Tag("trip", "Journey", archived = true), Tag("trip", "Trip")))
+            val editing = success(ledger.beginEdit(first.id))
+            success(ledger.confirm(editing.id, editing.token))
+            val fresh = draft(ledger, expense(100).copy(tagIds = listOf("trip")))
+            assertEquals(LedgerResult.Invalid(InvalidReason.TAG), ledger.confirm(fresh.id, fresh.token))
+            val current = success(ledger.entry(first.id))
+            success(ledger.trash(first.id, current.token))
+            assertEquals(listOf(first.id), success(ledger.search(LedgerFilter(status = EntryStatus.TRASH))).entries.map { it.id })
+        }
+
+    @Test fun copyAndTemplateCreateDistinctDraftsThatNeverPostAutomatically() =
+        runBlocking {
+            val ledger = open()
+            seed(ledger)
+            val source =
+                post(
+                    ledger,
+                    expense(1000).copy(merchant = "Reusable", allocations = listOf(Allocation("food", 600), Allocation("travel", 400))),
+                )
+            val copied = success(ledger.copyEntry(source.id))
+            assertTrue(copied.entryId != source.id)
+            assertTrue(
+                copied.input.allocations
+                    .map { it.id }
+                    .none { id -> source.input.allocations.any { it.id == id } },
+            )
+            assertEquals(source.input.allocations.map { it.amountMinor }, copied.input.allocations.map { it.amountMinor })
+            assertEquals(null, copied.input.purchaseId)
+            val template =
+                EntryTemplate(
+                    "routine",
+                    "Routine",
+                    source.input.copy(amountMinor = null, allocations = source.input.allocations.map { it.copy(amountMinor = 0) }),
+                )
+            success(ledger.saveTemplate(template))
+            assertEquals(template, success(ledger.templates()).single())
+            val applied = success(ledger.applyTemplate("routine"))
+            assertTrue(applied.id != copied.id && applied.entryId != source.id)
+            assertEquals(null, applied.input.amountMinor)
+            assertEquals(LedgerResult.Invalid(InvalidReason.MISSING_AMOUNT), ledger.confirm(applied.id, applied.token))
+            assertEquals(-1000L, success(ledger.balance("cash")))
+            assertEquals(1, success(ledger.page()).entries.size)
+            success(ledger.deleteTemplate("routine"))
+            assertTrue(success(ledger.templates()).isEmpty())
+        }
+
+    @Test fun bulkCategorizationRejectsStaleRowsAndRollsBackWholeBatch() =
+        runBlocking {
+            var ledger = open()
+            seed(ledger)
+            success(ledger.categoryRepository.save(Category("food", "Food", CategoryKind.EXPENSE)))
+            val first = post(ledger, expense(600).copy(merchant = "First"))
+            val second = post(ledger, expense(400).copy(merchant = "Second"))
+            val selections =
+                listOf(
+                    AllocationSelection(first.id, "a", first.token),
+                    AllocationSelection(second.id, "a", second.token),
+                )
+            assertEquals(
+                LedgerResult.Conflict,
+                ledger.bulkCategorize(
+                    selections.mapIndexed { index, row ->
+                        if (index == 1) row.copy(expectedToken = "stale") else row
+                    },
+                    "food",
+                ),
+            )
+            assertEquals(
+                null,
+                success(ledger.entry(first.id))
+                    .input.allocations
+                    .single()
+                    .categoryId,
+            )
+            ledger = open { throw IOException("Synthetic interrupted bulk write") }
+            assertEquals(LedgerResult.TemporarilyUnavailable, ledger.bulkCategorize(selections, "food"))
+            ledger = open()
+            assertEquals(
+                null,
+                success(ledger.entry(first.id))
+                    .input.allocations
+                    .single()
+                    .categoryId,
+            )
+            assertEquals(2, success(ledger.bulkCategorize(selections, "food")))
+            assertEquals(
+                "food",
+                success(ledger.entry(first.id))
+                    .input.allocations
+                    .single()
+                    .categoryId,
+            )
+            assertEquals(
+                "food",
+                success(ledger.entry(second.id))
+                    .input.allocations
+                    .single()
+                    .categoryId,
+            )
+            assertEquals(-1000L, success(ledger.balance("cash")))
+            assertEquals(1000L, success(ledger.totals(today, today)).single().spendingMinor)
+            assertEquals(LedgerResult.Conflict, ledger.bulkCategorize(selections, null))
         }
 
     @Test fun itemizedForeignReceiptsPersistAndEditsReplaceLinesAtomically() =

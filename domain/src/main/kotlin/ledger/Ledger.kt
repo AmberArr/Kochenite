@@ -106,6 +106,7 @@ data class EntryInput(
     val merchantAmount: Money? = null,
     val purchaseId: String? = null,
     val receiptLines: List<ReceiptLine> = emptyList(),
+    val tagIds: List<String> = emptyList(),
 )
 
 data class Posting(
@@ -128,6 +129,7 @@ enum class InvalidReason {
     DATE,
     ACCOUNT,
     CATEGORY,
+    TAG,
     CURRENCY,
     TRANSFER,
     ALLOCATIONS,
@@ -171,6 +173,9 @@ fun validateEntry(
     if (input.merchant.length > 500 || input.note.length > 10000) return invalid(InvalidReason.TEXT_TOO_LONG)
     if (input.receiptLines.size > 1000 || input.receiptLines.any { it.description.isBlank() || it.description.length > 500 }) {
         return invalid(InvalidReason.TEXT_TOO_LONG)
+    }
+    if (input.tagIds.size > 100 || input.tagIds.distinct().size != input.tagIds.size || input.tagIds.any { !validId(it) }) {
+        return invalid(InvalidReason.IDENTITY)
     }
     val account = accounts[input.accountId]?.takeUnless { it.archived } ?: return invalid(InvalidReason.ACCOUNT)
     val amount = input.amountMinor ?: return invalid(InvalidReason.MISSING_AMOUNT)
