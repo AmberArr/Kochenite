@@ -100,6 +100,17 @@
     <string name="merchant_currency">Merchant currency (optional context)</string>
     <string name="linked_refund">Linked to a purchase</string>
     <string name="refund_allocation">Refund this allocation</string>
+    <string name="category_splits">Category splits</string>
+    <string name="add_split">Add split</string>
+    <string name="remove_split">Remove row</string>
+    <string name="itemize_receipt">Itemize receipt</string>
+    <string name="remove_itemization">Remove receipt lines</string>
+    <string name="add_receipt_line">Add receipt line</string>
+    <string name="receipt_description">Line description</string>
+    <string name="receipt_line_total">Final inclusive line total</string>
+    <string name="allocation_amount">Account-currency allocation</string>
+    <string name="allocated_total">Allocated / actual charge</string>
+    <string name="receipt_total">Receipt lines / receipt total</string>
     <string name="edit_transaction">Edit transaction</string>
     <string name="move_to_trash">Move to trash</string>
     <string name="restore">Restore</string>

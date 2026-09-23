@@ -23,6 +23,7 @@ import moe.frost.kochenite.domain.ledger.LedgerPage
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.Money
 import moe.frost.kochenite.domain.ledger.PostingService
+import moe.frost.kochenite.domain.ledger.ReceiptLine
 import moe.frost.kochenite.domain.ledger.SavedEntry
 import moe.frost.kochenite.domain.ledger.ValidatedEntry
 import moe.frost.kochenite.domain.ledger.validId
@@ -200,6 +201,9 @@ class RoomLedger internal constructor(
                     invalid(InvalidReason.STATE)
                 }
                 if (draft.input.merchant.length > 500 || draft.input.note.length > 10000 || draft.input.allocations.size > 1000 ||
+                    draft.input.receiptLines.size > 1000 || draft.input.receiptLines.any { it.description.length > 500 } ||
+                    draft.allocationTexts.size > 1000 || draft.lineTexts.size > 1000 ||
+                    (draft.allocationTexts.values + draft.lineTexts.values).any { it.length > 100 } ||
                     (draft.amountText?.length ?: 0) > 100 || (draft.dateText?.length ?: 0) > 40 ||
                     (draft.timeText?.length ?: 0) > 40 || (draft.receivedText?.length ?: 0) > 100 ||
                     (draft.merchantAmountText?.length ?: 0) > 100 || (draft.merchantCurrencyText?.length ?: 0) > 10
@@ -306,6 +310,21 @@ class RoomLedger internal constructor(
                         invalid(InvalidReason.AMOUNT)
                     }
                 }
+                val currency =
+                    dao
+                        .accounts()
+                        .find { it.id == draft.input.accountId }
+                        ?.model()
+                        ?.currency ?: invalid(InvalidReason.ACCOUNT)
+                for ((id, text) in draft.allocationTexts) {
+                    val allocation = draft.input.allocations.find { it.id == id } ?: invalid(InvalidReason.ALLOCATIONS)
+                    if (runCatching { currency.parseMinor(text) }.getOrNull() != allocation.amountMinor) invalid(InvalidReason.ALLOCATIONS)
+                }
+                val lineCurrency = draft.input.merchantAmount?.currency ?: currency
+                for ((id, text) in draft.lineTexts) {
+                    val line = draft.input.receiptLines.find { it.id == id } ?: invalid(InvalidReason.ALLOCATIONS)
+                    if (runCatching { lineCurrency.parseMinor(text) }.getOrNull() != line.merchantMinor) invalid(InvalidReason.ALLOCATIONS)
+                }
                 val valid = validate(draft.input)
                 draft.input.purchaseId?.let {
                     if (it == draft.entryId || dao.entry(it)?.kind != EntryKind.EXPENSE.name) invalid(InvalidReason.REFUND_LINK)
@@ -341,6 +360,7 @@ class RoomLedger internal constructor(
                     dao.insertEntry(row)
                 } else {
                     dao.deletePostings(row.id)
+                    dao.deleteReceiptLines(row.id)
                     dao.deleteAllocations(row.id)
                     dao.updateEntry(row)
                 }
@@ -350,6 +370,9 @@ class RoomLedger internal constructor(
                 }
                 input.allocations.forEachIndexed { position, allocation ->
                     dao.insertAllocation(AllocationRow(row.id, allocation.id, position, allocation.amountMinor, allocation.categoryId))
+                }
+                input.receiptLines.forEachIndexed { position, line ->
+                    dao.insertReceiptLine(ReceiptLineRow(row.id, line.id, position, line.description, line.merchantMinor))
                 }
                 afterWrite()
                 // SQLite SUM detects overflow. Check both removed and newly affected accounts before commit.
@@ -406,6 +429,7 @@ class RoomLedger internal constructor(
 
     private suspend fun model(row: EntryRow): SavedEntry {
         val allocations = dao.allocations(row.id).map { Allocation(it.id, it.amountMinor, it.categoryId) }
+        val receiptLines = dao.receiptLines(row.id).map { ReceiptLine(it.id, it.description, it.merchantMinor) }
         val money = row.merchantMinor?.let { Money(it, BookCurrency(row.merchantCurrency!!, row.merchantScale!!)) }
         return SavedEntry(
             row.id,
@@ -424,6 +448,7 @@ class RoomLedger internal constructor(
                 row.note,
                 money,
                 row.purchaseId,
+                receiptLines,
             ),
         )
     }

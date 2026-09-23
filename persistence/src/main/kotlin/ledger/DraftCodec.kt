@@ -6,6 +6,7 @@ import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryInput
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.Money
+import moe.frost.kochenite.domain.ledger.ReceiptLine
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
@@ -32,12 +33,28 @@ internal fun Draft.row(): DraftRow {
             .put("receivedText", receivedText)
             .put("merchantAmountText", merchantAmountText)
             .put("merchantCurrencyText", merchantCurrencyText)
+            .put("allocationTexts", JSONObject(allocationTexts))
+            .put("lineTexts", JSONObject(lineTexts))
             .put(
                 "allocations",
                 JSONArray().apply {
                     input.allocations.forEach {
                         put(
                             JSONObject().put("id", it.id).put("amount", it.amountMinor.toString()).put("category", it.categoryId),
+                        )
+                    }
+                },
+            ).put(
+                "receiptLines",
+                JSONArray().apply {
+                    input.receiptLines.forEach {
+                        put(
+                            JSONObject()
+                                .put(
+                                    "id",
+                                    it.id,
+                                ).put("description", it.description)
+                                .put("merchantMinor", it.merchantMinor.toString()),
                         )
                     }
                 },
@@ -66,6 +83,17 @@ internal fun DraftRow.model(): Draft {
             val row = rows.getJSONObject(it)
             Allocation(row.getString("id"), row.getString("amount").toLong(), if (row.has("category")) row.getString("category") else null)
         }
+    val receiptRows = json.optJSONArray("receiptLines") ?: JSONArray()
+    val receiptLines =
+        (0 until receiptRows.length()).map {
+            val row = receiptRows.getJSONObject(it)
+            ReceiptLine(row.getString("id"), row.getString("description"), row.getString("merchantMinor").toLong())
+        }
+
+    fun textMap(key: String): Map<String, String> =
+        json.optJSONObject(key)?.let { objectJson ->
+            objectJson.keys().asSequence().associateWith { objectJson.getString(it) }
+        } ?: emptyMap()
     return Draft(
         id,
         entryId,
@@ -83,6 +111,7 @@ internal fun DraftRow.model(): Draft {
             json.getString("note"),
             money,
             optional("purchase"),
+            receiptLines,
         ),
         originalToken,
         incomplete,
@@ -92,5 +121,7 @@ internal fun DraftRow.model(): Draft {
         optional("receivedText"),
         optional("merchantAmountText"),
         optional("merchantCurrencyText"),
+        textMap("allocationTexts"),
+        textMap("lineTexts"),
     )
 }

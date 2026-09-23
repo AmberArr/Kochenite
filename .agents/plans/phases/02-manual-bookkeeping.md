@@ -140,8 +140,8 @@ verified commits and keep dated results only in the worklog.
 - 2.2: complete; [setup/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-22--september-23-2026).
 - 2.3: complete; [entry/device evidence](../../worklogs/02-manual-bookkeeping.md#milestone-23--september-23-2026).
 - 2.4: complete; [transfer/refund evidence](../../worklogs/02-manual-bookkeeping.md#milestone-24--september-23-2026).
-- 2.5: in progress. 2.6–2.9: pending.
+- 2.5: complete; [split/receipt evidence](../../worklogs/02-manual-bookkeeping.md#milestone-25--september-23-2026).
+- 2.6: next. 2.7–2.9: pending.
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
-- Next: add exact category-split editing and receipt-line storage with final
-  inclusive totals. Implement deterministic largest-remainder account-currency
-  allocation for foreign lines, then verify reconciliation and safe line edits.
+- Next: design indexed bounded ledger search/filter queries and tag references,
+  then add copy/template drafts and atomic allocation-row bulk categorization.

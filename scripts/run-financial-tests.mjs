@@ -34,7 +34,7 @@ try {
   result.stage = 'financial-storage';
   const output = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.FinancialStorageDeviceTest', runner], 120_000);
-  result.completedTests = completedTests(output, 15);
+  result.completedTests = completedTests(output, 17);
   result.stage = 'book-setup';
   const setupOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.BookSetupDeviceTest', runner], 120_000);
@@ -48,7 +48,7 @@ try {
     adb(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
     const uiOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
       'moe.frost.kochenite.BookUiDeviceTest', uiRunner], 120_000);
-    result.completedTests += completedTests(uiOutput, 5);
+    result.completedTests += completedTests(uiOutput, 6);
     result.stage = 'process-draft-create';
     const createOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
       'moe.frost.kochenite.BookProcessDeviceTest#createAcknowledgedDraft', uiRunner], 120_000);

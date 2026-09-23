@@ -290,6 +290,11 @@ internal class BookViewModel(
                     allocation.amountMinor,
                     allocations = listOf(Allocation(UUID.randomUUID().toString(), allocation.amountMinor, allocation.categoryId)),
                     merchant = purchase.input.merchant,
+                    note =
+                        purchase.input.receiptLines
+                            .find { it.id == allocationId }
+                            ?.description
+                            .orEmpty(),
                     purchaseId = purchase.id,
                 )
             val draft =

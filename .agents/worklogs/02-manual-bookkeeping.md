@@ -146,3 +146,30 @@ option while its intended target was offscreen. Tagged choices plus explicit
 scrolling made the test select and verify the requested account. The complete
 27-assertion runner passed afterward. Incomplete draft listing remains a simple
 scrolling view; indexed search/pagination comes in 2.6. Next action: milestone 2.5.
+
+## Milestone 2.5 — September 23, 2026
+
+Added category-split rows and optional final-inclusive receipt lines to the
+entry editor. Each line has a description and merchant-currency total tied by
+stable ID to one account-currency allocation and category. The editor displays
+both account and receipt reconciliation, proposes exact foreign allocations
+with stable largest-remainder rounding, and lets users correct each allocation.
+Line and allocation removal/editing replace the aggregate atomically; invalid
+totals retain the draft and leave the posted transaction unchanged. Zero-minor
+allocations are valid for itemized receipts where a small account charge cannot
+give every positive merchant line one minor unit. Linked refunds can be started
+from a displayed receipt item and carry its description as context. Room schema
+v4 stores receipt lines under allocations and migrates v3 data without change.
+No tax, discount, quantity, coupon or points shortcut was added.
+
+Verification: `./gradlew spotlessApply verify :app:assembleDebug
+:app:assembleDebugAndroidTest :persistence:assembleDebugAndroidTest` passed.
+The rediscovered OnePlus 6T physical-phone runner passed 30 assertions: 17
+financial storage, five setup, six UI and two process-restart checks. New tests
+cover v3→v4 migration, receipt edit rollback/replacement across reopen, exact
+and large-number rounding, and a UI journey that enters foreign receipt lines,
+reviews their account allocations, posts once and checks the resulting balance.
+The existing incomplete/refund UI tests initially raced asynchronous navigation;
+waiting for the target route resolved this and the full runner passed. Sanitized
+evidence is in ignored `.local/financial-evidence/instrumentation.json`. Only
+synthetic debug records were used. Next action: milestone 2.6.

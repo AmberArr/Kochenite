@@ -19,6 +19,7 @@ import moe.frost.kochenite.domain.ledger.EntryStatus
 import moe.frost.kochenite.domain.ledger.InvalidReason
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.Money
+import moe.frost.kochenite.domain.ledger.ReceiptLine
 import moe.frost.kochenite.domain.ledger.SavedEntry
 import moe.frost.kochenite.persistence.PreservingSQLiteFactory
 import org.junit.After
@@ -384,6 +385,54 @@ class FinancialStorageDeviceTest {
                 assertEquals(expense(), success(ledger.draft("saved-draft")).input)
                 assertTrue(success(ledger.accounts()).single().currencyLocked)
             }
+        }
+
+    @Test fun version3MigrationAddsReceiptLinesWithoutChangingExistingRecords() =
+        runBlocking {
+            migration.createDatabase(name, 3).use { old ->
+                old.execSQL(
+                    "INSERT INTO accounts (id,name,currency,scale,archived,includeInNetWorth,currencyLocked,groupId,type,position) VALUES ('cash','Cash','USD',2,0,1,0,NULL,'',0)",
+                )
+            }
+            migration.runMigrationsAndValidate(name, 4, true, ledgerMigration3To4).close()
+            val ledger = open()
+            assertEquals("cash", success(ledger.accounts()).single().id)
+            assertTrue(success(ledger.page()).entries.isEmpty())
+        }
+
+    @Test fun itemizedForeignReceiptsPersistAndEditsReplaceLinesAtomically() =
+        runBlocking {
+            var ledger = open()
+            seed(ledger)
+            val original =
+                expense(1001).copy(
+                    merchantAmount = Money(300, BookCurrency("JPY", 0)),
+                    allocations = listOf(Allocation("a", 334), Allocation("b", 334), Allocation("c", 333)),
+                    receiptLines = listOf(ReceiptLine("a", "One", 100), ReceiptLine("b", "Two", 100), ReceiptLine("c", "Three", 100)),
+                )
+            val posted = post(ledger, original)
+            ledger = open()
+            assertEquals(original, success(ledger.entry(posted.id)).input)
+            assertEquals(-1001L, success(ledger.balance("cash")))
+            val editing = success(ledger.beginEdit(posted.id))
+            val malformed =
+                success(
+                    ledger.saveDraft(editing.copy(input = original.copy(receiptLines = original.receiptLines.dropLast(1))), editing.token),
+                )
+            assertEquals(LedgerResult.Invalid(InvalidReason.ALLOCATIONS), ledger.confirm(malformed.id, malformed.token))
+            assertEquals(original, success(ledger.entry(posted.id)).input)
+            assertEquals(-1001L, success(ledger.balance("cash")))
+            val corrected =
+                original.copy(
+                    allocations = listOf(Allocation("a", 500), Allocation("c", 501)),
+                    receiptLines = listOf(ReceiptLine("a", "First", 150), ReceiptLine("c", "Last", 150)),
+                )
+            val ready = success(ledger.saveDraft(malformed.copy(input = corrected), malformed.token))
+            success(ledger.confirm(ready.id, ready.token))
+            ledger = open()
+            assertEquals(corrected, success(ledger.entry(posted.id)).input)
+            assertEquals(-1001L, success(ledger.balance("cash")))
+            assertEquals(1001L, success(ledger.totals(today, today)).single().spendingMinor)
         }
 
     @Test fun interruptedMigrationPreservesOldRowsAndRetries() =

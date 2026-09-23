@@ -132,4 +132,61 @@ class LedgerTest {
             ),
         )
     }
+
+    @Test fun receiptLinesAndSplitsMustBothReconcile() {
+        val input =
+            expense(1001).copy(
+                merchantAmount = Money(300, BookCurrency("JPY", 0)),
+                allocations = listOf(Allocation("a", 334), Allocation("b", 334), Allocation("c", 333)),
+                receiptLines = listOf(ReceiptLine("a", "One", 100), ReceiptLine("b", "Two", 100), ReceiptLine("c", "Three", 100)),
+            )
+        assertIs<LedgerResult.Success<ValidatedEntry>>(check(input))
+        assertEquals(LedgerResult.Invalid(InvalidReason.ALLOCATIONS), check(input.copy(receiptLines = input.receiptLines.dropLast(1))))
+        assertEquals(
+            LedgerResult.Invalid(InvalidReason.ALLOCATIONS),
+            check(
+                input.copy(
+                    receiptLines =
+                        input.receiptLines.mapIndexed { index, line ->
+                            if (index == 0) line.copy(merchantMinor = 99) else line
+                        },
+                ),
+            ),
+        )
+        assertEquals(LedgerResult.Invalid(InvalidReason.ALLOCATIONS), check(input.copy(allocations = input.allocations.dropLast(1))))
+        assertEquals(
+            LedgerResult.Invalid(InvalidReason.TEXT_TOO_LONG),
+            check(
+                input.copy(
+                    receiptLines =
+                        input.receiptLines.map {
+                            it.copy(description = "")
+                        },
+                ),
+            ),
+        )
+    }
+
+    @Test fun largestRemainderUsesStableLineOrderAndExactIntegerMoney() {
+        assertEquals(
+            listOf(334L, 334L, 333L),
+            assertIs<LedgerResult.Success<List<Long>>>(proportionalAllocations(1001, listOf(100, 100, 100))).value,
+        )
+        assertEquals(listOf(1L, 0L, 0L), assertIs<LedgerResult.Success<List<Long>>>(proportionalAllocations(1, listOf(1, 1, 1))).value)
+        assertIs<LedgerResult.Success<ValidatedEntry>>(
+            check(
+                expense(1).copy(
+                    allocations = listOf(Allocation("a", 1), Allocation("b", 0)),
+                    receiptLines = listOf(ReceiptLine("a", "First", 1), ReceiptLine("b", "Second", 1)),
+                    merchantAmount = Money(2, BookCurrency("JPY", 0)),
+                ),
+            ),
+        )
+        assertEquals(
+            listOf(9007199254740993L),
+            assertIs<LedgerResult.Success<List<Long>>>(proportionalAllocations(9007199254740993L, listOf(9007199254740993L))).value,
+        )
+        assertEquals(LedgerResult.Invalid(InvalidReason.OVERFLOW), proportionalAllocations(1, listOf(Long.MAX_VALUE, 1)))
+        assertEquals(LedgerResult.Invalid(InvalidReason.ALLOCATIONS), proportionalAllocations(10, listOf(0, 10)))
+    }
 }

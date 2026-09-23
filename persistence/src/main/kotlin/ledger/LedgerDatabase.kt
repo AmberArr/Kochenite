@@ -134,6 +134,26 @@ internal data class AllocationRow(
     val categoryId: String?,
 )
 
+@Entity(
+    tableName = "receipt_lines",
+    primaryKeys = ["entryId", "id"],
+    foreignKeys = [
+        ForeignKey(
+            entity = AllocationRow::class,
+            parentColumns = ["entryId", "id"],
+            childColumns = ["entryId", "id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+internal data class ReceiptLineRow(
+    val entryId: String,
+    val id: String,
+    val position: Int,
+    val description: String,
+    val merchantMinor: Long,
+)
+
 // Draft account/category references deliberately remain free-form: unfinished input must survive edits.
 @Entity(tableName = "drafts", indices = [Index("entryId")])
 internal data class DraftRow(
@@ -217,14 +237,22 @@ internal interface LedgerDao {
 
     @Insert suspend fun insertAllocation(row: AllocationRow)
 
+    @Insert suspend fun insertReceiptLine(row: ReceiptLineRow)
+
     @Query("DELETE FROM postings WHERE entryId = :id")
     suspend fun deletePostings(id: String)
 
     @Query("DELETE FROM allocations WHERE entryId = :id")
     suspend fun deleteAllocations(id: String)
 
+    @Query("DELETE FROM receipt_lines WHERE entryId = :id")
+    suspend fun deleteReceiptLines(id: String)
+
     @Query("SELECT * FROM allocations WHERE entryId = :id ORDER BY position")
     suspend fun allocations(id: String): List<AllocationRow>
+
+    @Query("SELECT * FROM receipt_lines WHERE entryId = :id ORDER BY position")
+    suspend fun receiptLines(id: String): List<ReceiptLineRow>
 
     @Query(
         "SELECT COALESCE(SUM(p.amountMinor), 0) FROM postings p JOIN entries e ON p.entryId = e.id WHERE p.accountId = :accountId AND e.status = 'POSTED'",
@@ -285,9 +313,9 @@ internal interface LedgerDao {
 @Database(
     entities = [
         AccountGroupRow::class, BookSettingsRow::class, AccountRow::class, CategoryRow::class,
-        EntryRow::class, PostingRow::class, AllocationRow::class, DraftRow::class,
+        EntryRow::class, PostingRow::class, AllocationRow::class, ReceiptLineRow::class, DraftRow::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 internal abstract class LedgerDatabase : RoomDatabase() {
@@ -301,7 +329,7 @@ internal fun ledgerDatabase(
     Room
         .databaseBuilder(context, LedgerDatabase::class.java, name)
         .openHelperFactory(PreservingSQLiteFactory())
-        .addMigrations(ledgerMigration1To2, ledgerMigration2To3)
+        .addMigrations(ledgerMigration1To2, ledgerMigration2To3, ledgerMigration3To4)
         .build()
 
 internal val ledgerMigration1To2 =
@@ -324,5 +352,14 @@ internal val ledgerMigration2To3 =
             db.execSQL("ALTER TABLE accounts ADD COLUMN type TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE accounts ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
             db.execSQL("CREATE INDEX IF NOT EXISTS index_accounts_groupId ON accounts(groupId)")
+        }
+    }
+
+internal val ledgerMigration3To4 =
+    object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS receipt_lines (entryId TEXT NOT NULL, id TEXT NOT NULL, position INTEGER NOT NULL, description TEXT NOT NULL, merchantMinor INTEGER NOT NULL, PRIMARY KEY(entryId, id), FOREIGN KEY(entryId, id) REFERENCES allocations(entryId, id) ON DELETE CASCADE)",
+            )
         }
     }

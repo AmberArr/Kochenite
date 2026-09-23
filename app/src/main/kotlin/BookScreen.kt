@@ -79,8 +79,11 @@ import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.Money
+import moe.frost.kochenite.domain.ledger.ReceiptLine
 import moe.frost.kochenite.domain.ledger.SavedEntry
+import moe.frost.kochenite.domain.ledger.proportionalAllocations
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.Currency
@@ -698,12 +701,16 @@ internal fun BookScreen(
         }
         entry.input.purchaseId?.let { Text(stringResource(R.string.linked_refund)) }
         entry.input.allocations.forEach { allocation ->
+            entry.input.receiptLines.find { it.id == allocation.id }?.let { line ->
+                val lineCurrency = entry.input.merchantAmount?.currency ?: account?.currency
+                Text("${line.description} · ${lineCurrency?.code.orEmpty()} ${lineCurrency?.formatMinor(line.merchantMinor).orEmpty()}")
+            }
             Text(
                 "${state.categories.find { it.id == allocation.categoryId }?.name ?: stringResource(
                     R.string.category,
                 )} · ${account?.currency?.formatMinor(allocation.amountMinor).orEmpty()}",
             )
-            if (entry.status == EntryStatus.POSTED && entry.input.kind == EntryKind.EXPENSE) {
+            if (entry.status == EntryStatus.POSTED && entry.input.kind == EntryKind.EXPENSE && allocation.amountMinor > 0) {
                 TextButton(onClick = { refundAllocation(allocation.id) }) { Text(stringResource(R.string.refund_allocation)) }
             }
         }
@@ -766,13 +773,31 @@ internal fun BookScreen(
                 if (minor ==
                     null
                 ) {
-                    emptyList()
+                    draft.input.allocations
+                } else if (draft.input.receiptLines.isNotEmpty()) {
+                    val proposed = proportionalAllocations(minor, draft.input.receiptLines.map { it.merchantMinor })
+                    if (proposed is LedgerResult.Success) {
+                        draft.input.allocations.mapIndexed { index, row -> row.copy(amountMinor = proposed.value[index]) }
+                    } else {
+                        draft.input.allocations
+                    }
+                } else if (draft.input.allocations.size > 1) {
+                    draft.input.allocations
                 } else {
                     listOf(Allocation(first?.id ?: UUID.randomUUID().toString(), minor, first?.categoryId))
                 }
             }
         return draft.copy(
             amountText = text,
+            allocationTexts =
+                if (draft.input.receiptLines.isNotEmpty() || draft.input.allocations.size <= 1 ||
+                    accountId != draft.input.accountId
+                ) {
+                    emptyMap()
+                } else {
+                    draft.allocationTexts
+                },
+            lineTexts = if (accountId != draft.input.accountId && draft.input.merchantAmount == null) emptyMap() else draft.lineTexts,
             receivedText =
                 if (draft.input.kind == EntryKind.TRANSFER &&
                     state.accounts
@@ -789,6 +814,7 @@ internal fun BookScreen(
                     accountId = accountId,
                     amountMinor = minor,
                     allocations = allocations,
+                    receiptLines = if (draft.input.kind == EntryKind.TRANSFER) emptyList() else draft.input.receiptLines,
                     receivedMinor =
                         if (draft.input.kind == EntryKind.TRANSFER &&
                             state.accounts
@@ -801,6 +827,19 @@ internal fun BookScreen(
                             draft.input.receivedMinor
                         },
                 ),
+        )
+    }
+
+    fun reallocateLines(draft: Draft): Draft {
+        val charge = draft.input.amountMinor ?: return draft
+        val lines = draft.input.receiptLines
+        if (lines.isEmpty()) return draft
+        val proposed = proportionalAllocations(charge, lines.map { it.merchantMinor })
+        if (proposed !is LedgerResult.Success) return draft
+        val byId = lines.mapIndexed { index, line -> line.id to proposed.value[index] }.toMap()
+        return draft.copy(
+            allocationTexts = emptyMap(),
+            input = draft.input.copy(allocations = draft.input.allocations.map { it.copy(amountMinor = byId[it.id] ?: it.amountMinor) }),
         )
     }
 
@@ -860,8 +899,11 @@ internal fun BookScreen(
                             ),
                         )
                     }
+                if (kind == draft.input.kind) return@updateEditor draft
                 draft.copy(
                     receivedText = if (kind == EntryKind.TRANSFER) draft.receivedText else null,
+                    allocationTexts = emptyMap(),
+                    lineTexts = emptyMap(),
                     input =
                         draft.input.copy(
                             kind = kind,
@@ -869,6 +911,7 @@ internal fun BookScreen(
                             receivedMinor = if (kind == EntryKind.TRANSFER) draft.input.receivedMinor else null,
                             purchaseId = if (kind == EntryKind.REFUND) draft.input.purchaseId else null,
                             allocations = allocations,
+                            receiptLines = emptyList(),
                         ),
                 )
             }
@@ -951,18 +994,194 @@ internal fun BookScreen(
             val categoryKind = if (current.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
             val uncategorized = if (categoryKind == CategoryKind.INCOME) R.string.uncategorized_income else R.string.uncategorized_expense
             val categories = state.categories.filter { !it.archived && it.kind == categoryKind }
-            val categoryId =
-                current.input.allocations
-                    .firstOrNull()
-                    ?.categoryId
-            Choice(
-                R.string.category,
-                categories.find { it.id == categoryId }?.name ?: stringResource(uncategorized),
-                listOf(null to stringResource(uncategorized)) + categories.map { it.id to it.name },
-            ) { selected ->
-                model.updateEditor { draft ->
-                    draft.copy(input = draft.input.copy(allocations = draft.input.allocations.map { it.copy(categoryId = selected) }))
+            val lineCurrency = current.input.merchantAmount?.currency ?: account?.currency
+            val itemized = current.input.receiptLines.isNotEmpty()
+            Text(stringResource(R.string.category_splits), style = MaterialTheme.typography.titleMedium)
+            current.input.allocations.forEachIndexed { index, allocation ->
+                val line = current.input.receiptLines.find { it.id == allocation.id }
+                Text("${index + 1}. ${account?.currency?.code.orEmpty()}")
+                if (line != null) {
+                    Field(R.string.receipt_description, line.description, { text ->
+                        model.updateEditor { draft ->
+                            draft.copy(
+                                input =
+                                    draft.input.copy(
+                                        receiptLines =
+                                            draft.input.receiptLines.map {
+                                                if (it.id == line.id) it.copy(description = text) else it
+                                            },
+                                    ),
+                            )
+                        }
+                    })
+                    Field(
+                        R.string.receipt_line_total,
+                        current.lineTexts[line.id] ?: lineCurrency
+                            ?.formatMinor(
+                                line.merchantMinor,
+                            ).orEmpty(),
+                        { text ->
+                            model.updateEditor { draft ->
+                                val parsed = runCatching { lineCurrency?.parseMinor(text) }.getOrNull() ?: 0L
+                                reallocateLines(
+                                    draft.copy(
+                                        lineTexts = draft.lineTexts + (line.id to text),
+                                        input =
+                                            draft.input.copy(
+                                                receiptLines =
+                                                    draft.input.receiptLines.map {
+                                                        if (it.id == line.id) it.copy(merchantMinor = parsed) else it
+                                                    },
+                                            ),
+                                    ),
+                                )
+                            }
+                        },
+                        number = true,
+                    )
                 }
+                Field(
+                    R.string.allocation_amount,
+                    current.allocationTexts[allocation.id] ?: account?.currency?.formatMinor(allocation.amountMinor).orEmpty(),
+                    { text ->
+                        model.updateEditor { draft ->
+                            val parsed = runCatching { account?.currency?.parseMinor(text) }.getOrNull() ?: 0L
+                            draft.copy(
+                                allocationTexts = draft.allocationTexts + (allocation.id to text),
+                                input =
+                                    draft.input.copy(
+                                        allocations =
+                                            draft.input.allocations.map {
+                                                if (it.id == allocation.id) it.copy(amountMinor = parsed) else it
+                                            },
+                                    ),
+                            )
+                        }
+                    },
+                    number = true,
+                )
+                Choice(
+                    R.string.category,
+                    categories.find { it.id == allocation.categoryId }?.name ?: stringResource(uncategorized),
+                    listOf(null to stringResource(uncategorized)) + categories.map { it.id to it.name },
+                ) { selected ->
+                    model.updateEditor { draft ->
+                        draft.copy(
+                            input =
+                                draft.input.copy(
+                                    allocations =
+                                        draft.input.allocations.map {
+                                            if (it.id == allocation.id) it.copy(categoryId = selected) else it
+                                        },
+                                ),
+                        )
+                    }
+                }
+                if (current.input.allocations.size > 1) {
+                    TextButton(onClick = {
+                        model.updateEditor { draft ->
+                            val reduced =
+                                draft.copy(
+                                    allocationTexts = draft.allocationTexts - allocation.id,
+                                    lineTexts = draft.lineTexts - allocation.id,
+                                    input =
+                                        draft.input.copy(
+                                            allocations = draft.input.allocations.filterNot { it.id == allocation.id },
+                                            receiptLines = draft.input.receiptLines.filterNot { it.id == allocation.id },
+                                        ),
+                                )
+                            reallocateLines(reduced)
+                        }
+                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.remove_split)) }
+                }
+            }
+            TextButton(
+                onClick = {
+                    model.updateEditor { draft ->
+                        val id = UUID.randomUUID().toString()
+                        draft.copy(
+                            input =
+                                draft.input.copy(
+                                    allocations = draft.input.allocations + Allocation(id, 0),
+                                    receiptLines =
+                                        if (draft.input.receiptLines.isEmpty()) {
+                                            emptyList()
+                                        } else {
+                                            draft.input.receiptLines +
+                                                ReceiptLine(id, "", 0)
+                                        },
+                                ),
+                        )
+                    }
+                },
+                modifier =
+                    Modifier.heightIn(
+                        min = 48.dp,
+                    ),
+            ) { Text(stringResource(if (itemized) R.string.add_receipt_line else R.string.add_split)) }
+            if (!itemized) {
+                TextButton(onClick = {
+                    model.updateEditor { draft ->
+                        val receiptTotal = draft.input.merchantAmount?.minor ?: draft.input.amountMinor ?: return@updateEditor draft
+                        val proposed = proportionalAllocations(receiptTotal, draft.input.allocations.map { it.amountMinor })
+                        if (proposed !is LedgerResult.Success) return@updateEditor draft
+                        draft.copy(
+                            input =
+                                draft.input.copy(
+                                    receiptLines =
+                                        draft.input.allocations.mapIndexed { index, row ->
+                                            ReceiptLine(row.id, "Item ${index + 1}", proposed.value[index])
+                                        },
+                                ),
+                        )
+                    }
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.itemize_receipt)) }
+            } else {
+                TextButton(onClick = {
+                    model.updateEditor { draft -> draft.copy(lineTexts = emptyMap(), input = draft.input.copy(receiptLines = emptyList())) }
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.remove_itemization)) }
+            }
+            val allocationTotal =
+                runCatching {
+                    current.input.allocations.fold(
+                        0L,
+                    ) { sum, row -> Math.addExact(sum, row.amountMinor) }
+                }.getOrNull()
+            Text(
+                "${stringResource(
+                    R.string.allocated_total,
+                )}: ${account?.currency?.code.orEmpty()} ${allocationTotal?.let {
+                    account?.currency?.formatMinor(
+                        it,
+                    )
+                } ?: "?"} / $amountText",
+                color =
+                    if (allocationTotal ==
+                        current.input.amountMinor
+                    ) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+            )
+            if (itemized) {
+                val lineTotal =
+                    runCatching {
+                        current.input.receiptLines.fold(
+                            0L,
+                        ) { sum, line -> Math.addExact(sum, line.merchantMinor) }
+                    }.getOrNull()
+                val expected = current.input.merchantAmount?.minor ?: current.input.amountMinor
+                Text(
+                    "${stringResource(
+                        R.string.receipt_total,
+                    )}: ${lineCurrency?.code.orEmpty()} ${lineTotal?.let {
+                        lineCurrency?.formatMinor(
+                            it,
+                        )
+                    } ?: "?"} / ${expected?.let { lineCurrency?.formatMinor(it) } ?: "?"}",
+                    color = if (lineTotal == expected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                )
             }
         }
         Field(R.string.notes, current.input.note, { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } })

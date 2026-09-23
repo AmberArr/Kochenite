@@ -32,6 +32,15 @@ class BookUiDeviceTest {
         compose.onNodeWithTag("field-$label").performScrollTo().performTextReplacement(value)
     }
 
+    private fun fieldAt(
+        label: String,
+        index: Int,
+        value: String,
+    ) {
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("field-$label").fetchSemanticsNodes().size > index }
+        compose.onAllNodesWithTag("field-$label")[index].performScrollTo().performTextReplacement(value)
+    }
+
     private fun ready() {
         compose.activityRule.scenario.onActivity {
             it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -216,7 +225,9 @@ class BookUiDeviceTest {
         assertEquals(1550L, incompleteDraft.input.merchantAmount?.minor)
         assertEquals(0L, (runBlocking { book.balance(source.id) } as LedgerResult.Success).value)
         assertEquals(0L, (runBlocking { book.balance(destination.id) } as LedgerResult.Success).value)
+        compose.waitUntil(15000) { compose.onAllNodesWithText("New transaction").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("nav-1").performClick()
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Incomplete").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Incomplete").performScrollTo().performClick()
         compose.onNodeWithText(merchant, substring = true).performScrollTo().performClick()
         field("Actual amount received", "1510")
@@ -293,6 +304,7 @@ class BookUiDeviceTest {
 
         compose.waitUntil(15000) { compose.onAllNodesWithText("New transaction").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText("Add").performClick()
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("choice-Transaction kind").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("choice-Transaction kind").performClick()
         compose.onNodeWithTag("choice-Transaction kind-option-REFUND").performClick()
         compose.onNodeWithTag("choice-Account name").performClick()
@@ -310,5 +322,37 @@ class BookUiDeviceTest {
             }
         assertEquals(null, standalone.input.purchaseId)
         assertEquals(500L, (runBlocking { book.balance(target.id) } as LedgerResult.Success).value)
+    }
+
+    @Test fun receiptLinesAndReviewedForeignAllocationsPostExactCharge() {
+        ready()
+        val merchant = "Synthetic itemized ${UUID.randomUUID().toString().take(8)}"
+        val app = context.applicationContext as KocheniteApplication
+        val book = (runBlocking { app.financialStorage.open() } as LedgerResult.Success).value
+        val account = (runBlocking { book.accountRepository.list() } as LedgerResult.Success).value.first { !it.account.archived }.account
+        val before = (runBlocking { book.balance(account.id) } as LedgerResult.Success).value
+        compose.onNodeWithText("Add").performClick()
+        field("Amount", "10.01")
+        field("Merchant or payee", merchant)
+        field("Merchant amount (optional context)", "300")
+        field("Merchant currency (optional context)", "JPY")
+        compose.onNodeWithText("Add split").performScrollTo().performClick()
+        fieldAt("Account-currency allocation", 0, "5.00")
+        fieldAt("Account-currency allocation", 1, "5.01")
+        compose.onNodeWithText("Itemize receipt").performScrollTo().performClick()
+        fieldAt("Line description", 0, "Synthetic first")
+        fieldAt("Line description", 1, "Synthetic second")
+        fieldAt("Final inclusive line total", 0, "100")
+        fieldAt("Final inclusive line total", 1, "200")
+        fieldAt("Account-currency allocation", 0, "3.35")
+        fieldAt("Account-currency allocation", 1, "6.66")
+        compose.onNodeWithText("Post transaction").performScrollTo().performClick()
+        compose.waitUntil(15000) {
+            runBlocking { (book.page() as LedgerResult.Success).value.entries.any { it.input.merchant == merchant } }
+        }
+        val posted = (runBlocking { book.page() } as LedgerResult.Success).value.entries.single { it.input.merchant == merchant }
+        assertEquals(listOf(335L, 666L), posted.input.allocations.map { it.amountMinor })
+        assertEquals(listOf(100L, 200L), posted.input.receiptLines.map { it.merchantMinor })
+        assertEquals(Math.subtractExact(before, 1001L), (runBlocking { book.balance(account.id) } as LedgerResult.Success).value)
     }
 }
