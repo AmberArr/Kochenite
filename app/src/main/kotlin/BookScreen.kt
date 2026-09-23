@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -23,27 +24,39 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DisplayMode
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -53,11 +66,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -90,6 +107,7 @@ import moe.frost.kochenite.domain.ledger.Tag
 import moe.frost.kochenite.domain.ledger.proportionalAllocations
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneOffset
 import java.util.Currency
 import java.util.UUID
 
@@ -137,6 +155,7 @@ import java.util.UUID
 
 @Serializable internal data class EntryDraftRoute(
     val id: String,
+    val autofocusAmount: Boolean = false,
 )
 
 @Serializable internal data class EntryDetailRoute(
@@ -156,6 +175,8 @@ private fun currency(code: String): BookCurrency? =
     onChange: (String) -> Unit,
     enabled: Boolean = true,
     number: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    multiline: Boolean = false,
 ) {
     val labelText = stringResource(label)
     OutlinedTextField(
@@ -163,9 +184,22 @@ private fun currency(code: String): BookCurrency? =
         onValueChange = onChange,
         label = { Text(labelText) },
         enabled = enabled,
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("field-$labelText"),
-        keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Ascii else KeyboardType.Text),
+        singleLine = !multiline,
+        minLines = if (multiline) 3 else 1,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .then(
+                    if (focusRequester !=
+                        null
+                    ) {
+                        Modifier.focusRequester(focusRequester)
+                    } else {
+                        Modifier
+                    },
+                ).testTag("field-$labelText"),
+        keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text),
     )
 }
 
@@ -174,34 +208,140 @@ private fun currency(code: String): BookCurrency? =
     checked: Boolean,
     change: (Boolean) -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { change(!checked) }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Checkbox(checked, change)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(checked, onClick = {
+            change(!checked)
+        }, role = Role.Checkbox),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Checkbox(checked, onCheckedChange = null)
         Text(stringResource(label), Modifier.padding(top = 12.dp))
     }
 }
 
-@Composable private fun Choice(
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun Choice(
     label: Int,
     selected: String,
     choices: List<Pair<String?, String>>,
+    useSheet: Boolean = true,
     change: (String?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
     val labelText = stringResource(label)
     Column {
         Text(labelText, style = MaterialTheme.typography.labelLarge)
-        TextButton(onClick = { expanded = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("choice-$labelText")) { Text(selected) }
-        DropdownMenu(expanded, { expanded = false }) {
-            choices.forEach { (id, title) ->
-                DropdownMenuItem(text = {
-                    Text(
-                        title,
-                    )
-                }, modifier = Modifier.testTag("choice-$labelText-option-${id ?: "none"}"), onClick = {
-                    change(id)
-                    expanded = false
-                })
+        TextButton(
+            onClick = {
+                query = ""
+                expanded = true
+            },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("choice-$labelText"),
+        ) { Text(selected) }
+        if (useSheet && expanded) {
+            val selectedId = choices.firstOrNull { it.second == selected }?.first
+            val visibleChoices = choices.filter { query.isBlank() || it.second.contains(query, ignoreCase = true) }
+            ModalBottomSheet(onDismissRequest = { expanded = false }) {
+                Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 24.dp)) {
+                    Text(labelText, style = MaterialTheme.typography.titleLarge)
+                    if (choices.size > 6) {
+                        OutlinedTextField(
+                            query,
+                            { query = it },
+                            label = { Text(stringResource(R.string.search_options)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("choice-search-$labelText"),
+                        )
+                    }
+                    LazyColumn(Modifier.heightIn(max = 560.dp)) {
+                        items(visibleChoices, key = { it.first ?: "none" }) { (id, title) ->
+                            val checked = id == selectedId
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 56.dp)
+                                    .testTag("choice-$labelText-option-${id ?: "none"}")
+                                    .selectable(checked, role = Role.RadioButton) {
+                                        change(id)
+                                        query = ""
+                                        expanded = false
+                                    },
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            ) {
+                                RadioButton(checked, onClick = null)
+                                Text(title)
+                            }
+                        }
+                    }
+                }
             }
+        } else if (!useSheet) {
+            DropdownMenu(expanded, { expanded = false }) {
+                choices.forEach { (id, title) ->
+                    DropdownMenuItem(
+                        text = { Text(title) },
+                        modifier = Modifier.testTag("choice-$labelText-option-${id ?: "none"}"),
+                        onClick = {
+                            change(id)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DatePickerField(
+    label: Int,
+    value: String,
+    onChange: (String) -> Unit,
+) {
+    var pickerOpen by rememberSaveable { mutableStateOf(false) }
+    val labelText = stringResource(label)
+    Column {
+        Text(labelText, style = MaterialTheme.typography.labelLarge)
+        TextButton(
+            onClick = { pickerOpen = true },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("date-picker-$labelText"),
+        ) {
+            Text(value.ifBlank { stringResource(R.string.any_date) })
+        }
+    }
+    if (pickerOpen) {
+        val selectedDate = runCatching { LocalDate.parse(value) }.getOrNull() ?: LocalDate.now()
+        val pickerState =
+            rememberDatePickerState(
+                initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+                initialDisplayMode = DisplayMode.Picker,
+                yearRange = 1..9999,
+            )
+        DatePickerDialog(
+            onDismissRequest = { pickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        onChange(
+                            java.time.Instant
+                                .ofEpochMilli(millis)
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()
+                                .toString(),
+                        )
+                    }
+                    pickerOpen = false
+                }) { Text(stringResource(R.string.done)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickerOpen = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        ) {
+            DatePicker(pickerState, showModeToggle = true)
         }
     }
 }
@@ -226,6 +366,36 @@ private fun currency(code: String): BookCurrency? =
         }
         content()
         Spacer(Modifier.height(96.dp))
+    }
+}
+
+@Composable private fun EditorLayout(
+    state: BookState,
+    postEnabled: Boolean,
+    onPost: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+            content()
+            Spacer(Modifier.height(16.dp))
+        }
+        Column(
+            Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(onClick = onPost, enabled = postEnabled && !state.saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.post))
+            }
+        }
     }
 }
 
@@ -298,21 +468,52 @@ internal fun BookScreen(
     }
     BoxWithConstraints {
         val wide = maxWidth >= 840.dp
+        val editorActive = editor != null && current?.destination?.hasRoute(EntryDraftRoute::class) == true
+        var editorMenu by rememberSaveable { mutableStateOf(false) }
         Scaffold(
             topBar = {
-                TopAppBar(title = { Text(stringResource(R.string.app_name)) }, navigationIcon = {
-                    if (nav.previousBackStackEntry !=
-                        null
-                    ) {
-                        TextButton(enabled = !state.saving, onClick = {
-                            if (editor != null) model.closeEditor { nav.popBackStack() } else nav.popBackStack()
-                            model.clearError()
-                        }) { Text(stringResource(R.string.back)) }
-                    }
-                }, actions = { TextButton(onClick = { navigate(SettingsRoute) }) { Text(stringResource(R.string.settings)) } })
+                if (editorActive) {
+                    TopAppBar(title = {
+                        Text(
+                            if (editor?.draft?.originalToken ==
+                                null
+                            ) {
+                                stringResource(R.string.new_transaction)
+                            } else {
+                                stringResource(R.string.edit_transaction)
+                            },
+                        )
+                    }, navigationIcon = {
+                        TextButton(onClick = { model.closeEditor { nav.popBackStack() } }) { Text(stringResource(R.string.back)) }
+                    }, actions = {
+                        Box {
+                            TextButton(
+                                onClick = { editorMenu = true },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            ) { Text(stringResource(R.string.more)) }
+                            DropdownMenu(editorMenu, { editorMenu = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.discard_draft)) }, onClick = {
+                                    editorMenu = false
+                                    model.discardEditor { nav.popBackStack() }
+                                })
+                            }
+                        }
+                    })
+                } else {
+                    TopAppBar(title = { Text(stringResource(R.string.app_name)) }, navigationIcon = {
+                        if (nav.previousBackStackEntry !=
+                            null
+                        ) {
+                            TextButton(enabled = !state.saving, onClick = {
+                                if (editor != null) model.closeEditor { nav.popBackStack() } else nav.popBackStack()
+                                model.clearError()
+                            }) { Text(stringResource(R.string.back)) }
+                        }
+                    }, actions = { TextButton(onClick = { navigate(SettingsRoute) }) { Text(stringResource(R.string.settings)) } })
+                }
             },
             bottomBar = {
-                if (!wide) {
+                if (!wide && !editorActive) {
                     NavigationBar {
                         tabs.forEachIndexed { index, (route, label) ->
                             NavigationBarItem(
@@ -327,9 +528,11 @@ internal fun BookScreen(
                 }
             },
             floatingActionButton = {
-                ExtendedFloatingActionButton(onClick = {
-                    navigate(EntryDraftRoute(UUID.randomUUID().toString()))
-                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.add)) }
+                if (!editorActive) {
+                    ExtendedFloatingActionButton(onClick = {
+                        navigate(EntryDraftRoute(UUID.randomUUID().toString(), autofocusAmount = true))
+                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.add)) }
+                }
             },
             contentWindowInsets = WindowInsets.safeDrawing,
         ) { padding ->
@@ -340,7 +543,7 @@ internal fun BookScreen(
                     .consumeWindowInsets(padding)
                     .imePadding(),
             ) {
-                if (wide) {
+                if (wide && !editorActive) {
                     NavigationRail {
                         tabs.forEachIndexed { index, (route, label) ->
                             NavigationRailItem(
@@ -363,6 +566,7 @@ internal fun BookScreen(
                             { navigate(EntryDraftRoute(it)) },
                             { navigate(EntryDetailRoute(it)) },
                             { navigate(TemplatesRoute) },
+                            { navigate(EntryDraftRoute(UUID.randomUUID().toString(), autofocusAmount = true)) },
                         )
                     }
                     composable<ReportsRoute> { ReportPanel(state) }
@@ -407,10 +611,12 @@ internal fun BookScreen(
                     composable<GroupRoute> { GroupForm(it.toRoute<GroupRoute>().id, state, model) }
                     composable<AdjustmentRoute> { AdjustmentForm(it.toRoute<AdjustmentRoute>().id, state, model) }
                     composable<EntryDraftRoute> {
-                        val id = it.toRoute<EntryDraftRoute>().id
+                        val route = it.toRoute<EntryDraftRoute>()
+                        val id = route.id
                         LaunchedEffect(id) { model.openDraft(id) }
                         EntryEditorForm(
                             id,
+                            route.autofocusAmount,
                             state,
                             editor,
                             model,
@@ -673,14 +879,18 @@ internal fun BookScreen(
     }
 }
 
-@Composable private fun TransactionsPanel(
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TransactionsPanel(
     state: BookState,
     model: BookViewModel,
     isActive: Boolean,
     openDraft: (String) -> Unit,
     openEntry: (String) -> Unit,
     openTemplates: () -> Unit,
+    addTransaction: () -> Unit,
 ) {
+    val keyboardController = LocalSoftwareKeyboardController.current
     var filter by rememberSaveable { mutableStateOf("posted") }
     var query by rememberSaveable { mutableStateOf("") }
     var fromText by rememberSaveable { mutableStateOf("") }
@@ -695,6 +905,9 @@ internal fun BookScreen(
     var bulk by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf(listOf<String>()) }
     var targetCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
+    var showMenu by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
     val amountCurrency =
         state.accounts
             .map { it.account.currency }
@@ -729,7 +942,36 @@ internal fun BookScreen(
             )
         }
     }
-    Form(R.string.transactions, state) {
+    val isLedger = filter == "posted" || filter == "trash"
+    val entries =
+        if (valid &&
+            isLedger
+        ) {
+            state.searchEntries.filter {
+                it.status ==
+                    if (filter ==
+                        "trash"
+                    ) {
+                        EntryStatus.TRASH
+                    } else {
+                        EntryStatus.POSTED
+                    }
+            }
+        } else {
+            emptyList()
+        }
+    val drafts = if (filter == "incomplete") state.incompleteDrafts else state.drafts.filter { !it.incomplete }
+    val activeFilters =
+        fromText.isNotBlank() || throughText.isNotBlank() || accountId != null || categoryId != null || tagId != null || kind != null ||
+            amountCode != null ||
+            minimumText.isNotBlank() ||
+            maximumText.isNotBlank()
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            stringResource(R.string.transactions),
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.semantics { heading() },
+        )
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(
                 "posted" to R.string.posted,
@@ -737,158 +979,879 @@ internal fun BookScreen(
                 "incomplete" to R.string.incomplete,
                 "trash" to R.string.trash,
             ).forEach { (key, label) ->
-                TextButton(onClick = { filter = key }) { Text(stringResource(label)) }
+                FilterChip(selected = filter == key, onClick = {
+                    filter = key
+                    selected = emptyList()
+                }, label = { Text(stringResource(label), maxLines = 1) })
             }
         }
-        TextButton(onClick = openTemplates) { Text(stringResource(R.string.templates)) }
-        if (filter == "posted" || filter == "trash") {
-            Field(R.string.search, query, { query = it })
-            Field(R.string.from_date, fromText, { fromText = it })
-            Field(R.string.through_date, throughText, { throughText = it })
-            Choice(
-                R.string.account_name,
-                state.accounts
-                    .find { it.account.id == accountId }
-                    ?.account
-                    ?.name ?: stringResource(R.string.any_account),
-                listOf(null to stringResource(R.string.any_account)) + state.accounts.map { it.account.id to it.account.name },
-            ) { accountId = it }
-            Choice(
-                R.string.category,
-                state.categories.find { it.id == categoryId }?.name ?: stringResource(R.string.any_category),
-                listOf(null to stringResource(R.string.any_category)) + state.categories.map { it.id to it.name },
-            ) { categoryId = it }
-            Choice(
-                R.string.tags,
-                state.tags.find { it.id == tagId }?.name ?: stringResource(R.string.any_tag),
-                listOf(null to stringResource(R.string.any_tag)) + state.tags.map { it.id to it.name },
-            ) { tagId = it }
-            Choice(
-                R.string.transaction_kind,
-                kind ?: stringResource(R.string.any_kind),
-                listOf(null to stringResource(R.string.any_kind)) + EntryKind.entries.map { it.name to it.name },
-            ) { kind = it }
-            Choice(
-                R.string.amount_currency,
-                amountCurrency?.code ?: stringResource(R.string.any_currency),
-                listOf(null to stringResource(R.string.any_currency)) +
-                    state.accounts
-                        .map { it.account.currency }
-                        .distinct()
-                        .map { it.code to it.code },
-            ) {
-                amountCode = it
-                minimumText = ""
-                maximumText = ""
+        state.error?.let { error ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(stringResource(error), color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                TextButton(onClick = model::refresh, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.retry)) }
             }
-            Field(R.string.minimum_amount, minimumText, { minimumText = it }, number = true)
-            Field(R.string.maximum_amount, maximumText, { maximumText = it }, number = true)
+        }
+        if (isLedger) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    query,
+                    { query = it },
+                    label = { Text(stringResource(R.string.search)) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("field-${stringResource(R.string.search)}"),
+                )
+                TextButton(
+                    onClick = {
+                        keyboardController?.hide()
+                        showFilters = true
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text(stringResource(R.string.filter)) }
+                Box {
+                    TextButton(
+                        onClick = {
+                            keyboardController?.hide()
+                            showMenu = true
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text(stringResource(R.string.more)) }
+                    DropdownMenu(showMenu, { showMenu = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.templates)) }, onClick = {
+                            showMenu = false
+                            openTemplates()
+                        })
+                        if (filter ==
+                            "posted"
+                        ) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.bulk_category)) }, onClick = {
+                                bulk = !bulk
+                                selected =
+                                    emptyList()
+                                showMenu = false
+                            })
+                        }
+                    }
+                }
+            }
             if (!valid) Text(stringResource(R.string.correct_fields), color = MaterialTheme.colorScheme.error)
+            if (activeFilters || query.isNotBlank()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text(if (query.isNotBlank()) stringResource(R.string.searching, query) else stringResource(R.string.filters_active))
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = {
+                        query = ""
+                        fromText = ""
+                        throughText = ""
+                        accountId = null
+                        categoryId = null
+                        tagId = null
+                        kind = null
+                        amountCode =
+                            null
+                        minimumText = ""
+                        maximumText = ""
+                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.reset)) }
+                }
+            }
         }
         if (filter == "draft" || filter == "incomplete") {
-            val drafts = if (filter == "incomplete") state.incompleteDrafts else state.drafts.filter { !it.incomplete }
-            drafts.forEach { draft ->
-                TextButton(onClick = { openDraft(draft.id) }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("${draft.input.date} • ${draft.input.merchant.ifBlank { draft.input.kind.name }}")
+            if (drafts.isNotEmpty()) {
+                Text(
+                    stringResource(
+                        if (filter ==
+                            "incomplete"
+                        ) {
+                            R.string.incomplete_not_posted
+                        } else {
+                            R.string.drafts_not_posted
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            LazyColumn(state = listState, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                items(drafts, key = { it.id }) { draft ->
+                    val account = state.accounts.find { it.account.id == draft.input.accountId }?.account
+                    val rawAmountText = draft.amountText
+                    val amountMinor = draft.input.amountMinor
+                    val amount =
+                        when {
+                            !rawAmountText.isNullOrBlank() && runCatching {
+                                account?.currency?.parseMinor(rawAmountText)
+                            }.getOrNull() == null -> stringResource(R.string.check_amount)
+
+                            !rawAmountText.isNullOrBlank() -> "${account?.currency?.code.orEmpty()} $rawAmountText"
+
+                            amountMinor != null -> "${account?.currency?.code.orEmpty()} ${account?.currency?.formatMinor(
+                                amountMinor,
+                            ).orEmpty()}"
+
+                            else -> stringResource(R.string.amount_needed)
+                        }
+                    val receivedUnknown = draft.input.kind == EntryKind.TRANSFER && draft.input.receivedMinor == null
+                    LedgerLine(
+                        title =
+                            draft.input.merchant.ifBlank {
+                                draft.input.allocations
+                                    .firstOrNull()
+                                    ?.categoryId
+                                    ?.let { id ->
+                                        state.categories
+                                            .find {
+                                                it.id ==
+                                                    id
+                                            }?.name
+                                    }.orEmpty()
+                                    .ifBlank { account?.name ?: stringResource(R.string.new_transaction) }
+                            },
+                        amount = amount,
+                        metadata = "${draft.input.date} · ${account?.name.orEmpty()} · ${if (draft.incomplete) {
+                            stringResource(
+                                R.string.incomplete,
+                            )
+                        } else {
+                            stringResource(R.string.draft)
+                        }}",
+                        detail =
+                            if (receivedUnknown) {
+                                stringResource(R.string.received_unknown)
+                            } else {
+                                draft.input.merchantAmount?.let {
+                                    "${stringResource(R.string.merchant_amount)} ${it.currency.code} ${it.currency.formatMinor(it.minor)}"
+                                }
+                            },
+                        onClick = { openDraft(draft.id) },
+                    )
+                }
+                if (drafts.isEmpty()) {
+                    item {
+                        EmptyLedger(
+                            stringResource(
+                                if (filter ==
+                                    "incomplete"
+                                ) {
+                                    R.string.no_incomplete
+                                } else {
+                                    R.string.no_drafts
+                                },
+                            ),
+                        )
+                    }
                 }
             }
         } else {
-            val entries =
-                if (valid) {
-                    state.searchEntries.filter { it.status == if (filter == "trash") EntryStatus.TRASH else EntryStatus.POSTED }
-                } else {
-                    emptyList()
-                }
-            if (filter == "posted") {
-                TextButton(onClick = {
-                    bulk = !bulk
-                    selected = emptyList()
-                }) { Text(stringResource(R.string.bulk_category)) }
-            }
+            val selectedRows =
+                entries
+                    .flatMap { entry ->
+                        entry.input.allocations.map { allocation ->
+                            entry to allocation
+                        }
+                    }.filter { (entry, allocation) ->
+                        selected.any { it.startsWith("${entry.id}|${allocation.id}|") }
+                    }
             if (bulk && filter == "posted") {
-                val selectedRows =
-                    entries
-                        .flatMap { entry -> entry.input.allocations.map { allocation -> entry to allocation } }
-                        .filter { (entry, allocation) -> selected.any { it.startsWith("${entry.id}|${allocation.id}|") } }
                 Text(stringResource(R.string.selected_rows, selectedRows.size))
-                selectedRows
-                    .groupBy { (entry, _) ->
+                val currencies =
+                    selectedRows.groupBy { (entry, _) ->
                         state.accounts
                             .find { it.account.id == entry.input.accountId }
                             ?.account
                             ?.currency
-                    }.forEach { (currency, rows) ->
-                        val amount =
-                            runCatching {
-                                rows.fold(0L) { sum, (_, allocation) -> Math.addExact(sum, allocation.amountMinor) }
-                            }.getOrNull()
-                        Text("${currency?.code.orEmpty()} ${amount?.let { currency?.formatMinor(it) } ?: "?"}")
                     }
+                currencies.forEach { (currency, rows) ->
+                    val amount = runCatching { rows.fold(0L) { sum, (_, row) -> Math.addExact(sum, row.amountMinor) } }.getOrNull()
+                    Text("${currency?.code.orEmpty()} ${amount?.let { currency?.formatMinor(it) } ?: "?"}")
+                }
                 val kinds =
                     selectedRows
                         .map {
-                            if (it.first.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+                            if (it.first.input.kind ==
+                                EntryKind.INCOME
+                            ) {
+                                CategoryKind.INCOME
+                            } else {
+                                CategoryKind.EXPENSE
+                            }
                         }.distinct()
                 val choices = state.categories.filter { !it.archived && (kinds.isEmpty() || it.kind in kinds) }
                 Choice(
                     R.string.category,
                     state.categories.find { it.id == targetCategory }?.name ?: stringResource(R.string.uncategorized_expense),
                     listOf(null to stringResource(R.string.uncategorized_expense)) + choices.map { it.id to it.name },
-                ) { targetCategory = it }
+                ) {
+                    targetCategory =
+                        it
+                }
                 Button(onClick = {
-                    val selections =
+                    model.bulkCategorize(
                         selected.map { row ->
                             val parts = row.split('|', limit = 3)
                             AllocationSelection(parts[0], parts[1], parts[2])
-                        }
-                    model.bulkCategorize(selections, targetCategory)
-                }, enabled = selected.isNotEmpty() && kinds.size == 1 && !state.saving) {
+                        },
+                        targetCategory,
+                    )
+                }, enabled = selected.isNotEmpty() && kinds.size == 1 && !state.saving, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(stringResource(R.string.apply_bulk_category))
                 }
-                if (kinds.size > 1) Text(stringResource(R.string.select_one_category_kind), color = MaterialTheme.colorScheme.error)
             }
-            if (entries.isEmpty()) Text(stringResource(R.string.no_entries))
-            entries.forEach { entry ->
-                val account = state.accounts.find { it.account.id == entry.input.accountId }?.account
-                TextButton(onClick = { openEntry(entry.id) }, modifier = Modifier.heightIn(min = 64.dp)) {
-                    Text(
-                        "${entry.input.date} • ${entry.input.merchant.ifBlank {
-                            account?.name.orEmpty()
-                        }} • ${account?.currency?.code.orEmpty()} ${account?.currency?.formatMinor(
-                            entry.input.amountMinor ?: 0,
-                        ).orEmpty()}",
-                    )
-                }
-                if (bulk && filter == "posted") {
-                    entry.input.allocations.forEach { allocation ->
-                        val key = "${entry.id}|${allocation.id}|${entry.token}"
-                        val checked = selected.any { it.startsWith("${entry.id}|${allocation.id}|") }
-                        Row(
-                            Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("bulk-row-${entry.id}-${allocation.id}").clickable {
-                                selected =
-                                    if (checked) selected.filterNot { it.startsWith("${entry.id}|${allocation.id}|") } else selected + key
+            LazyColumn(state = listState, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                if (!valid) {
+                    item(key = "invalid-filter") { EmptyLedger(stringResource(R.string.invalid_filter)) }
+                } else if (entries.isEmpty()) {
+                    item(key = "empty-ledger") {
+                        EmptyLedger(
+                            when {
+                                query.isNotBlank() || activeFilters -> stringResource(R.string.no_matches)
+                                filter == "trash" -> stringResource(R.string.empty_trash)
+                                else -> stringResource(R.string.no_posted)
                             },
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            if (query.isNotBlank() ||
+                                activeFilters
+                            ) {
+                                stringResource(R.string.clear_filters)
+                            } else if (filter ==
+                                "posted"
+                            ) {
+                                stringResource(R.string.add)
+                            } else {
+                                null
+                            },
                         ) {
-                            Checkbox(checked, { value ->
-                                selected =
-                                    if (value) {
-                                        selected + key
+                            if (query.isNotBlank() ||
+                                activeFilters
+                            ) {
+                                query = ""
+                                fromText = ""
+                                throughText = ""
+                                accountId = null
+                                categoryId = null
+                                tagId =
+                                    null
+                                kind = null
+                                amountCode = null
+                                minimumText = ""
+                                maximumText = ""
+                            } else {
+                                addTransaction()
+                            }
+                        }
+                    }
+                } else {
+                    val grouped = entries.groupBy { it.input.date }
+                    grouped.forEach { (date, group) ->
+                        item(key = "date-$date") {
+                            Text(
+                                dateHeading(date),
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 6.dp),
+                            )
+                        }
+                        items(group, key = { it.id }) { entry ->
+                            val account = state.accounts.find { it.account.id == entry.input.accountId }?.account
+                            val destination = state.accounts.find { it.account.id == entry.input.destinationAccountId }?.account
+                            val uncategorizedName =
+                                stringResource(
+                                    if (entry.input.kind ==
+                                        EntryKind.INCOME
+                                    ) {
+                                        R.string.uncategorized_income
                                     } else {
-                                        selected.filterNot {
-                                            it.startsWith("${entry.id}|${allocation.id}|")
+                                        R.string.uncategorized_expense
+                                    },
+                                )
+                            val categoryNames =
+                                entry.input.allocations
+                                    .map { row ->
+                                        val category = state.categories.find { it.id == row.categoryId }
+                                        if (category == null) {
+                                            uncategorizedName
+                                        } else {
+                                            val parent = state.categories.find { it.id == category.parentId }
+                                            if (parent == null) category.name else "${parent.name} · ${category.name}"
+                                        }
+                                    }.distinct()
+                            val mainAmount =
+                                when (entry.input.kind) {
+                                    EntryKind.TRANSFER -> "${account?.currency?.code.orEmpty()} −${account?.currency?.formatMinor(
+                                        entry.input.amountMinor ?: 0,
+                                    ).orEmpty()}"
+
+                                    else -> "${account?.currency?.code.orEmpty()} ${entry.input.amountMinor?.let {
+                                        if (it > 0) {
+                                            "+${account?.currency?.formatMinor(
+                                                it,
+                                            )}"
+                                        } else {
+                                            account?.currency?.formatMinor(it)
+                                        }
+                                    } ?: stringResource(R.string.amount_needed)}"
+                                }
+                            val title =
+                                when (entry.input.kind) {
+                                    EntryKind.OPENING -> {
+                                        stringResource(R.string.opening_balance_title)
+                                    }
+
+                                    EntryKind.ADJUSTMENT -> {
+                                        stringResource(R.string.adjustment_title)
+                                    }
+
+                                    else -> {
+                                        entry.input.merchant.ifBlank {
+                                            categoryNames.firstOrNull() ?: account?.name ?: entry.input.kind.name
                                         }
                                     }
-                            })
-                            val categoryName =
-                                state.categories.find { it.id == allocation.categoryId }?.name
-                                    ?: stringResource(R.string.uncategorized_expense)
-                            Text("$categoryName · ${account?.currency?.formatMinor(allocation.amountMinor).orEmpty()}")
+                                }
+                            val metadata =
+                                if (entry.input.kind == EntryKind.TRANSFER) {
+                                    "${account?.name.orEmpty()} → ${destination?.name.orEmpty()} · ${stringResource(
+                                        R.string.sent_received,
+                                        mainAmount,
+                                        "${destination?.currency?.code.orEmpty()} +${destination?.currency?.formatMinor(
+                                            entry.input.receivedMinor ?: 0,
+                                        ).orEmpty()}",
+                                    )} · ${entry.input.time.toString().take(5)}"
+                                } else {
+                                    "${account?.name.orEmpty()} · ${categoryNames.joinToString().ifBlank {
+                                        stringResource(
+                                            R.string.category,
+                                        )
+                                    }} · ${entry.input.time.toString().take(5)}"
+                                }
+                            val extra =
+                                entry.input.merchantAmount
+                                    ?.takeIf {
+                                        it.minor !=
+                                            entry.input.amountMinor?.let { amount -> runCatching { Math.absExact(amount) }.getOrNull() }
+                                    }?.let {
+                                        "${stringResource(
+                                            R.string.merchant_amount,
+                                        )} ${it.currency.code} ${it.currency.formatMinor(it.minor)}"
+                                    }
+                                    ?: if (entry.input.allocations.size >
+                                        1
+                                    ) {
+                                        stringResource(R.string.allocation_count, entry.input.allocations.size)
+                                    } else {
+                                        null
+                                    }
+                            Column {
+                                LedgerLine(
+                                    title,
+                                    mainAmount,
+                                    metadata,
+                                    extra,
+                                    rowTag = "posted-entry-${entry.id}",
+                                ) { openEntry(entry.id) }
+                                if (bulk && filter == "posted") {
+                                    entry.input.allocations.forEach { allocation ->
+                                        val key = "${entry.id}|${allocation.id}|${entry.token}"
+                                        val checked = selected.any { it.startsWith("${entry.id}|${allocation.id}|") }
+                                        Row(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 48.dp)
+                                                .testTag("bulk-row-${entry.id}-${allocation.id}")
+                                                .selectable(checked, role = Role.Checkbox) {
+                                                    selected =
+                                                        if (checked) {
+                                                            selected.filterNot { it.startsWith("${entry.id}|${allocation.id}|") }
+                                                        } else {
+                                                            selected + key
+                                                        }
+                                                },
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Checkbox(checked, onCheckedChange = null)
+                                            Text(
+                                                "${categoryNames.firstOrNull() ?: stringResource(
+                                                    R.string.uncategorized_expense,
+                                                )} · ${account?.currency?.formatMinor(allocation.amountMinor).orEmpty()}",
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (state.searchNext !=
+                        null
+                    ) {
+                        item(key = "load-more") {
+                            TextButton(
+                                onClick = model::loadMoreSearch,
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            ) { Text(stringResource(R.string.load_more)) }
                         }
                     }
                 }
             }
-            if (valid && state.searchNext != null) TextButton(onClick = model::loadMoreSearch) { Text(stringResource(R.string.load_more)) }
+        }
+    }
+    if (showFilters) {
+        ModalBottomSheet(onDismissRequest = { showFilters = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp)
+                    .imePadding(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(stringResource(R.string.filter_transactions), style = MaterialTheme.typography.titleLarge)
+                DatePickerField(R.string.from_date, fromText) { fromText = it }
+                DatePickerField(R.string.through_date, throughText) { throughText = it }
+                Choice(
+                    R.string.account_name,
+                    state.accounts
+                        .find { it.account.id == accountId }
+                        ?.account
+                        ?.name ?: stringResource(R.string.any_account),
+                    listOf(null to stringResource(R.string.any_account)) + state.accounts.map { it.account.id to it.account.name },
+                    useSheet = false,
+                ) {
+                    accountId =
+                        it
+                }
+                Choice(
+                    R.string.category,
+                    state.categories.find { it.id == categoryId }?.name ?: stringResource(R.string.any_category),
+                    listOf(null to stringResource(R.string.any_category)) + state.categories.map { it.id to it.name },
+                    useSheet = false,
+                ) { categoryId = it }
+                Choice(
+                    R.string.tags,
+                    state.tags.find { it.id == tagId }?.name ?: stringResource(R.string.any_tag),
+                    listOf(null to stringResource(R.string.any_tag)) + state.tags.map { it.id to it.name },
+                    useSheet = false,
+                ) { tagId = it }
+                Choice(
+                    R.string.transaction_kind,
+                    kind ?: stringResource(R.string.any_kind),
+                    listOf(null to stringResource(R.string.any_kind)) + EntryKind.entries.map { it.name to it.name },
+                    useSheet = false,
+                ) { kind = it }
+                Choice(
+                    R.string.amount_currency,
+                    amountCurrency?.code ?: stringResource(R.string.any_currency),
+                    listOf(null to stringResource(R.string.any_currency)) +
+                        state.accounts
+                            .map { it.account.currency }
+                            .distinct()
+                            .map { it.code to it.code },
+                    useSheet = false,
+                ) {
+                    amountCode = it
+                    minimumText =
+                        ""
+                    maximumText = ""
+                }
+                Field(R.string.minimum_amount, minimumText, { minimumText = it }, number = true)
+                Field(R.string.maximum_amount, maximumText, { maximumText = it }, number = true)
+                if (!valid) Text(stringResource(R.string.correct_fields), color = MaterialTheme.colorScheme.error)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = {
+                        fromText = ""
+                        throughText = ""
+                        accountId = null
+                        categoryId = null
+                        tagId = null
+                        kind = null
+                        amountCode =
+                            null
+                        minimumText = ""
+                        maximumText = ""
+                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.reset)) }
+                    TextButton(onClick = {
+                        showFilters = false
+                    }, enabled = valid, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.done)) }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable private fun LedgerLine(
+    title: String,
+    amount: String,
+    metadata: String,
+    detail: String?,
+    rowTag: String? = null,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .let { modifier -> if (rowTag == null) modifier else modifier.testTag(rowTag) }
+            .semantics(mergeDescendants = true) {
+            }.padding(horizontal = 4.dp, vertical = 8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            Text(amount, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"))
+        }
+        Text(metadata, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+@Composable private fun EmptyLedger(
+    message: String,
+    action: String? = null,
+    onAction: () -> Unit = {},
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 32.dp),
+        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(message, style = MaterialTheme.typography.bodyLarge)
+        if (action != null) TextButton(onClick = onAction, modifier = Modifier.heightIn(min = 48.dp)) { Text(action) }
+    }
+}
+
+private fun dateHeading(date: LocalDate): String {
+    val today = LocalDate.now()
+    return when (date) {
+        today -> {
+            "Today · ${date.format(
+                java.time.format.DateTimeFormatter
+                    .ofPattern("EEE, d MMM", java.util.Locale.getDefault()),
+            )}"
+        }
+
+        today.minusDays(1) -> {
+            "Yesterday"
+        }
+
+        else -> {
+            date.format(
+                java.time.format.DateTimeFormatter
+                    .ofPattern("EEE, d MMM uuuu", java.util.Locale.getDefault()),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AllocationDetailsDialog(
+    draft: Draft,
+    state: BookState,
+    model: BookViewModel,
+    close: () -> Unit,
+) {
+    var disableReceipt by rememberSaveable(draft.id) { mutableStateOf(false) }
+    if (disableReceipt) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { disableReceipt = false },
+            title = { Text(stringResource(R.string.remove_receipt_details)) },
+            text = { Text(stringResource(R.string.remove_receipt_details_warning)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    model.updateEditor { it.copy(lineTexts = emptyMap(), input = it.input.copy(receiptLines = emptyList())) }
+                    disableReceipt = false
+                }) { Text(stringResource(R.string.remove)) }
+            },
+            dismissButton = { TextButton(onClick = { disableReceipt = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = close,
+        properties =
+            androidx.compose.ui.window
+                .DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    TextButton(onClick = close, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.done)) }
+                    Text(stringResource(R.string.allocation_details), style = MaterialTheme.typography.titleLarge)
+                }
+                val account = state.accounts.find { it.account.id == draft.input.accountId }?.account
+                val categories =
+                    state.categories.filter {
+                        !it.archived &&
+                            it.kind == if (draft.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+                    }
+                val currency = draft.input.merchantAmount?.currency ?: account?.currency
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Toggle(R.string.receipt_details, draft.input.receiptLines.isNotEmpty()) { enabled ->
+                        if (!enabled && draft.input.receiptLines.isNotEmpty()) {
+                            disableReceipt = true
+                        } else if (enabled) {
+                            model.updateEditor { current ->
+                                val expected =
+                                    current.input.merchantAmount?.minor
+                                        ?: current.input.amountMinor?.let { runCatching { Math.absExact(it) }.getOrNull() }
+                                val suggested =
+                                    expected?.let {
+                                        proportionalAllocations(
+                                            it,
+                                            current.input.allocations.map { row ->
+                                                row.amountMinor
+                                            },
+                                        )
+                                    }
+                                if (suggested !is LedgerResult.Success) {
+                                    current
+                                } else {
+                                    current.copy(
+                                        input =
+                                            current.input.copy(
+                                                receiptLines =
+                                                    current.input.allocations.mapIndexed {
+                                                        index,
+                                                        row,
+                                                        ->
+                                                        ReceiptLine(row.id, "", suggested.value[index])
+                                                    },
+                                            ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    draft.input.allocations.forEachIndexed { index, allocation ->
+                        Text("${stringResource(R.string.allocation_row)} ${index + 1}", style = MaterialTheme.typography.titleMedium)
+                        Choice(
+                            R.string.category,
+                            categories.find { it.id == allocation.categoryId }?.name
+                                ?: stringResource(
+                                    if (draft.input.kind ==
+                                        EntryKind.INCOME
+                                    ) {
+                                        R.string.uncategorized_income
+                                    } else {
+                                        R.string.uncategorized_expense
+                                    },
+                                ),
+                            listOf(
+                                null to
+                                    stringResource(
+                                        if (draft.input.kind ==
+                                            EntryKind.INCOME
+                                        ) {
+                                            R.string.uncategorized_income
+                                        } else {
+                                            R.string.uncategorized_expense
+                                        },
+                                    ),
+                            ) +
+                                categories.map { it.id to it.name },
+                        ) { selected ->
+                            model.updateEditor { current ->
+                                current.copy(
+                                    input =
+                                        current.input.copy(
+                                            allocations =
+                                                current.input.allocations.map {
+                                                    if (it.id ==
+                                                        allocation.id
+                                                    ) {
+                                                        it.copy(categoryId = selected)
+                                                    } else {
+                                                        it
+                                                    }
+                                                },
+                                        ),
+                                )
+                            }
+                        }
+                        Field(
+                            R.string.allocation_amount,
+                            draft.allocationTexts[allocation.id] ?: account?.currency?.formatMinor(allocation.amountMinor).orEmpty(),
+                            { text ->
+                                model.updateEditor { current ->
+                                    val parsed = runCatching { account?.currency?.parseMinor(text) }.getOrNull() ?: 0L
+                                    current.copy(
+                                        allocationTexts = current.allocationTexts + (allocation.id to text),
+                                        input =
+                                            current.input.copy(
+                                                allocations =
+                                                    current.input.allocations.map {
+                                                        if (it.id ==
+                                                            allocation.id
+                                                        ) {
+                                                            it.copy(amountMinor = parsed)
+                                                        } else {
+                                                            it
+                                                        }
+                                                    },
+                                            ),
+                                    )
+                                }
+                            },
+                            number = true,
+                        )
+                        val line = draft.input.receiptLines.find { it.id == allocation.id }
+                        if (line != null) {
+                            Field(R.string.receipt_description, line.description, { text ->
+                                model.updateEditor { current ->
+                                    current.copy(
+                                        input =
+                                            current.input.copy(
+                                                receiptLines =
+                                                    current.input.receiptLines.map {
+                                                        if (it.id ==
+                                                            line.id
+                                                        ) {
+                                                            it.copy(description = text)
+                                                        } else {
+                                                            it
+                                                        }
+                                                    },
+                                            ),
+                                    )
+                                }
+                            })
+                            Field(
+                                R.string.receipt_line_total,
+                                draft.lineTexts[line.id] ?: currency?.formatMinor(line.merchantMinor).orEmpty(),
+                                { text ->
+                                    model.updateEditor { current ->
+                                        val parsed = runCatching { currency?.parseMinor(text) }.getOrNull() ?: 0L
+                                        val updated =
+                                            current.copy(
+                                                lineTexts = current.lineTexts + (line.id to text),
+                                                input =
+                                                    current.input.copy(
+                                                        receiptLines =
+                                                            current.input.receiptLines.map {
+                                                                if (it.id ==
+                                                                    line.id
+                                                                ) {
+                                                                    it.copy(merchantMinor = parsed)
+                                                                } else {
+                                                                    it
+                                                                }
+                                                            },
+                                                    ),
+                                            )
+                                        val actual = updated.input.amountMinor?.let { runCatching { Math.absExact(it) }.getOrNull() }
+                                        val shares =
+                                            actual?.let {
+                                                proportionalAllocations(
+                                                    it,
+                                                    updated.input.receiptLines.map { row ->
+                                                        row.merchantMinor
+                                                    },
+                                                )
+                                            }
+                                        if (shares is LedgerResult.Success) {
+                                            updated.copy(
+                                                allocationTexts = emptyMap(),
+                                                input =
+                                                    updated.input.copy(
+                                                        allocations =
+                                                            updated.input.allocations.mapIndexed {
+                                                                i,
+                                                                row,
+                                                                ->
+                                                                row.copy(amountMinor = shares.value[i])
+                                                            },
+                                                    ),
+                                            )
+                                        } else {
+                                            updated
+                                        }
+                                    }
+                                },
+                                number = true,
+                            )
+                        }
+                        if (draft.input.allocations.size > 1) {
+                            TextButton(onClick = {
+                                model.updateEditor { current ->
+                                    current.copy(
+                                        allocationTexts = current.allocationTexts - allocation.id,
+                                        lineTexts =
+                                            current.lineTexts - allocation.id,
+                                        input =
+                                            current.input.copy(
+                                                allocations =
+                                                    current.input.allocations.filterNot {
+                                                        it.id ==
+                                                            allocation.id
+                                                    },
+                                                receiptLines = current.input.receiptLines.filterNot { it.id == allocation.id },
+                                            ),
+                                    )
+                                }
+                            }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.remove_row)) }
+                        }
+                    }
+                    TextButton(onClick = {
+                        model.updateEditor { current ->
+                            val id = UUID.randomUUID().toString()
+                            current.copy(
+                                input =
+                                    current.input.copy(
+                                        allocations = current.input.allocations + Allocation(id, 0),
+                                        receiptLines =
+                                            if (current.input.receiptLines.isEmpty()) {
+                                                emptyList()
+                                            } else {
+                                                current.input.receiptLines +
+                                                    ReceiptLine(id, "", 0)
+                                            },
+                                    ),
+                            )
+                        }
+                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.add_row)) }
+                    val actual = draft.input.amountMinor?.let { runCatching { Math.absExact(it) }.getOrNull() }
+                    val allocated =
+                        runCatching {
+                            draft.input.allocations.fold(
+                                0L,
+                            ) { total, row -> Math.addExact(total, row.amountMinor) }
+                        }.getOrNull()
+                    Text(
+                        "${stringResource(
+                            R.string.allocated_total,
+                        )} · ${account?.currency?.code.orEmpty()} ${allocated?.let {
+                            account?.currency?.formatMinor(
+                                it,
+                            )
+                        } ?: "?"} / ${actual?.let { account?.currency?.formatMinor(it) } ?: "?"}",
+                    )
+                    if (draft.input.receiptLines.isNotEmpty()) {
+                        val receiptTotal =
+                            runCatching {
+                                draft.input.receiptLines.fold(
+                                    0L,
+                                ) { total, line -> Math.addExact(total, line.merchantMinor) }
+                            }.getOrNull()
+                        val expected = draft.input.merchantAmount?.minor ?: actual
+                        Text(
+                            "${stringResource(
+                                R.string.receipt_total,
+                            )} · ${currency?.code.orEmpty()} ${receiptTotal?.let {
+                                currency?.formatMinor(
+                                    it,
+                                )
+                            } ?: "?"} / ${expected?.let {
+                                currency?.formatMinor(
+                                    it,
+                                )
+                            } ?: "?"} · ${if (receiptTotal == expected) {
+                                stringResource(
+                                    R.string.totals_match,
+                                )
+                            } else {
+                                stringResource(R.string.totals_mismatch)
+                            }}",
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -920,7 +1883,14 @@ internal fun BookScreen(
         entry.input.merchantAmount?.let {
             Text("${stringResource(R.string.merchant_amount)}: ${it.currency.code} ${it.currency.formatMinor(it.minor)}")
         }
-        entry.input.purchaseId?.let { Text(stringResource(R.string.linked_refund)) }
+        entry.input.relatedEntryIds.forEach { relatedId ->
+            val related = (state.entries + state.trashed).find { it.id == relatedId }
+            Text(
+                "${stringResource(
+                    R.string.related_transactions,
+                )} · ${related?.input?.merchant?.ifBlank { related.input.kind.name } ?: relatedId}",
+            )
+        }
         entry.input.allocations.forEach { allocation ->
             entry.input.receiptLines.find { it.id == allocation.id }?.let { line ->
                 val lineCurrency = entry.input.merchantAmount?.currency ?: account?.currency
@@ -931,7 +1901,9 @@ internal fun BookScreen(
                     R.string.category,
                 )} · ${account?.currency?.formatMinor(allocation.amountMinor).orEmpty()}",
             )
-            if (entry.status == EntryStatus.POSTED && entry.input.kind == EntryKind.EXPENSE && allocation.amountMinor > 0) {
+            if (entry.status == EntryStatus.POSTED && entry.input.kind == EntryKind.EXPENSE && allocation.amountMinor > 0 &&
+                entry.input.amountMinor!! < 0
+            ) {
                 TextButton(onClick = { refundAllocation(allocation.id) }) { Text(stringResource(R.string.refund_allocation)) }
             }
         }
@@ -959,8 +1931,11 @@ internal fun BookScreen(
     }
 }
 
-@Composable private fun EntryEditorForm(
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EntryEditorForm(
     id: String,
+    autofocusAmount: Boolean,
     state: BookState,
     editor: EntryEditorState?,
     model: BookViewModel,
@@ -969,7 +1944,7 @@ internal fun BookScreen(
 ) {
     val current = editor?.draft?.takeIf { it.id == id }
     if (current == null) {
-        Form(R.string.new_transaction, state) { CircularProgressIndicator() }
+        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { CircularProgressIndicator() }
         return
     }
     val account = state.accounts.find { it.account.id == current.input.accountId }?.account
@@ -979,6 +1954,8 @@ internal fun BookScreen(
         current.timeText ?: current.input.time
             .toString()
             .take(5)
+    var showDateTimePicker by rememberSaveable(id) { mutableStateOf(false) }
+    var pickerShowsTime by rememberSaveable(id) { mutableStateOf(false) }
 
     fun changeAmount(
         draft: Draft,
@@ -990,7 +1967,8 @@ internal fun BookScreen(
                 .find { it.account.id == accountId }
                 ?.account
                 ?.currency
-        val minor = runCatching { money?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
+        val minor = runCatching { money?.parseMinor(text) }.getOrNull()?.takeIf { it != 0L }
+        val allocatedMinor = minor?.let { runCatching { Math.absExact(it) }.getOrNull() }
         val first = draft.input.allocations.firstOrNull()
         val allocations =
             if (draft.input.kind == EntryKind.TRANSFER) {
@@ -1000,8 +1978,10 @@ internal fun BookScreen(
                     null
                 ) {
                     draft.input.allocations
+                } else if (allocatedMinor == null) {
+                    draft.input.allocations
                 } else if (draft.input.receiptLines.isNotEmpty()) {
-                    val proposed = proportionalAllocations(minor, draft.input.receiptLines.map { it.merchantMinor })
+                    val proposed = proportionalAllocations(allocatedMinor, draft.input.receiptLines.map { it.merchantMinor })
                     if (proposed is LedgerResult.Success) {
                         draft.input.allocations.mapIndexed { index, row -> row.copy(amountMinor = proposed.value[index]) }
                     } else {
@@ -1010,7 +1990,7 @@ internal fun BookScreen(
                 } else if (draft.input.allocations.size > 1) {
                     draft.input.allocations
                 } else {
-                    listOf(Allocation(first?.id ?: UUID.randomUUID().toString(), minor, first?.categoryId))
+                    listOf(Allocation(first?.id ?: UUID.randomUUID().toString(), allocatedMinor, first?.categoryId))
                 }
             }
         return draft.copy(
@@ -1057,7 +2037,7 @@ internal fun BookScreen(
     }
 
     fun reallocateLines(draft: Draft): Draft {
-        val charge = draft.input.amountMinor ?: return draft
+        val charge = draft.input.amountMinor?.let { runCatching { Math.absExact(it) }.getOrNull() } ?: return draft
         val lines = draft.input.receiptLines
         if (lines.isEmpty()) return draft
         val proposed = proportionalAllocations(charge, lines.map { it.merchantMinor })
@@ -1069,7 +2049,68 @@ internal fun BookScreen(
         )
     }
 
-    Form(R.string.new_transaction, state) {
+    var pendingKind by rememberSaveable(id) { mutableStateOf<String?>(null) }
+
+    fun changeKind(kind: EntryKind) {
+        model.updateEditor { draft ->
+            val minor = draft.input.amountMinor
+            val magnitude = minor?.let { runCatching { Math.absExact(it) }.getOrNull() }
+            val allocations =
+                if (kind == EntryKind.TRANSFER || magnitude == null) {
+                    emptyList()
+                } else {
+                    listOf(
+                        Allocation(
+                            draft.input.allocations
+                                .firstOrNull()
+                                ?.id ?: UUID.randomUUID().toString(),
+                            magnitude,
+                        ),
+                    )
+                }
+            val expectedCategory = if (kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+            val oldCategory =
+                draft.input.allocations
+                    .singleOrNull()
+                    ?.categoryId
+            val preserveCategory = oldCategory?.takeIf { id -> state.categories.find { it.id == id }?.kind == expectedCategory }
+            val normalizedAllocations = allocations.map { it.copy(categoryId = preserveCategory) }
+            draft.copy(
+                receivedText = if (kind == EntryKind.TRANSFER) draft.receivedText else null,
+                allocationTexts = emptyMap(),
+                lineTexts = emptyMap(),
+                input =
+                    draft.input.copy(
+                        kind = kind,
+                        destinationAccountId = if (kind == EntryKind.TRANSFER) draft.input.destinationAccountId else null,
+                        receivedMinor = if (kind == EntryKind.TRANSFER) draft.input.receivedMinor else null,
+                        allocations = normalizedAllocations,
+                        receiptLines = emptyList(),
+                    ),
+            )
+        }
+        pendingKind = null
+    }
+    if (pendingKind != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingKind = null },
+            title = { Text(stringResource(R.string.change_transaction_kind)) },
+            text = { Text(stringResource(R.string.change_kind_warning)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { pendingKind?.let { changeKind(EntryKind.valueOf(it)) } },
+                ) { Text(stringResource(R.string.continue_label)) }
+            },
+            dismissButton = { TextButton(onClick = { pendingKind = null }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    val amountFocus = remember(id) { FocusRequester() }
+    LaunchedEffect(id, autofocusAmount) { if (autofocusAmount) amountFocus.requestFocus() }
+    EditorLayout(
+        state,
+        current.input.amountMinor != null && (current.input.kind != EntryKind.TRANSFER || current.input.receivedMinor != null),
+        model::confirmEditor,
+    ) {
         Text(
             stringResource(
                 if (editor.error != null && !editor.saved) {
@@ -1092,57 +2133,52 @@ internal fun BookScreen(
                     },
             )
         }
+        Text(account?.currency?.code.orEmpty(), style = MaterialTheme.typography.labelLarge)
+        Field(
+            if (current.input.kind ==
+                EntryKind.TRANSFER
+            ) {
+                R.string.sent_amount
+            } else {
+                R.string.amount
+            },
+            amountText,
+            { text -> model.updateEditor { changeAmount(it, text) } },
+            number = true,
+            focusRequester = amountFocus,
+        )
         Choice(
             R.string.transaction_kind,
             stringResource(
-                when (current.input.kind) {
-                    EntryKind.INCOME -> R.string.income
-                    EntryKind.REFUND -> R.string.refund
-                    EntryKind.TRANSFER -> R.string.transfer
-                    else -> R.string.expense
+                if (current.input.kind ==
+                    EntryKind.INCOME
+                ) {
+                    R.string.income
+                } else if (current.input.kind ==
+                    EntryKind.TRANSFER
+                ) {
+                    R.string.transfer
+                } else {
+                    R.string.expense
                 },
             ),
             listOf(
                 EntryKind.EXPENSE.name to stringResource(R.string.expense),
                 EntryKind.INCOME.name to stringResource(R.string.income),
-                EntryKind.REFUND.name to stringResource(R.string.refund),
                 EntryKind.TRANSFER.name to stringResource(R.string.transfer),
             ),
         ) { selected ->
             val kind = EntryKind.valueOf(selected ?: EntryKind.EXPENSE.name)
-            model.updateEditor { draft ->
-                val minor = draft.input.amountMinor
-                val allocations =
-                    if (kind == EntryKind.TRANSFER || minor == null) {
-                        emptyList()
-                    } else {
-                        listOf(
-                            Allocation(
-                                draft.input.allocations
-                                    .firstOrNull()
-                                    ?.id ?: UUID.randomUUID().toString(),
-                                minor,
-                            ),
-                        )
-                    }
-                if (kind == draft.input.kind) return@updateEditor draft
-                draft.copy(
-                    receivedText = if (kind == EntryKind.TRANSFER) draft.receivedText else null,
-                    allocationTexts = emptyMap(),
-                    lineTexts = emptyMap(),
-                    input =
-                        draft.input.copy(
-                            kind = kind,
-                            destinationAccountId = if (kind == EntryKind.TRANSFER) draft.input.destinationAccountId else null,
-                            receivedMinor = if (kind == EntryKind.TRANSFER) draft.input.receivedMinor else null,
-                            purchaseId = if (kind == EntryKind.REFUND) draft.input.purchaseId else null,
-                            allocations = allocations,
-                            receiptLines = emptyList(),
-                        ),
-                )
+            if (kind != current.input.kind) {
+                if (current.input.allocations.size > 1 ||
+                    current.input.receiptLines.isNotEmpty()
+                ) {
+                    pendingKind = kind.name
+                } else {
+                    changeKind(kind)
+                }
             }
         }
-        Field(R.string.amount, amountText, { text -> model.updateEditor { changeAmount(it, text) } }, number = true)
         Choice(
             R.string.account_name,
             account?.name ?: stringResource(R.string.select_account),
@@ -1178,278 +2214,406 @@ internal fun BookScreen(
             current.input.merchant,
             { text -> model.updateEditor { it.copy(input = it.input.copy(merchant = text)) } },
         )
-        val merchantCodeText =
-            current.merchantCurrencyText ?: current.input.merchantAmount
-                ?.currency
-                ?.code
-                .orEmpty()
-        val merchantAmountText =
-            current.merchantAmountText ?: current.input.merchantAmount
-                ?.let { it.currency.formatMinor(it.minor) }
-                .orEmpty()
-
-        fun changeMerchant(
-            draft: Draft,
-            text: String,
-            code: String,
-        ): Draft {
-            val merchantCurrency = currency(code)
-            val minor = runCatching { merchantCurrency?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
-            val money = if (merchantCurrency != null && minor != null) Money(minor, merchantCurrency) else null
-            return draft.copy(merchantAmountText = text, merchantCurrencyText = code, input = draft.input.copy(merchantAmount = money))
-        }
-        Field(R.string.merchant_amount, merchantAmountText, { text ->
-            model.updateEditor {
-                changeMerchant(it, text, merchantCodeText)
-            }
-        }, number = true)
-        Field(R.string.merchant_currency, merchantCodeText, { code -> model.updateEditor { changeMerchant(it, merchantAmountText, code) } })
-        Field(R.string.transaction_date, dateText, { text ->
-            model.updateEditor { draft ->
-                val parsed = runCatching { LocalDate.parse(text) }.getOrNull()
-                draft.copy(dateText = text, input = draft.input.copy(date = parsed ?: draft.input.date))
-            }
-        })
-        Field(R.string.transaction_time, timeText, { text ->
-            model.updateEditor { draft ->
-                val parsed = runCatching { LocalTime.parse(text) }.getOrNull()
-                draft.copy(timeText = text, input = draft.input.copy(time = parsed ?: draft.input.time))
-            }
-        })
+        var showAllocationDetails by rememberSaveable(id) { mutableStateOf(false) }
         if (current.input.kind != EntryKind.TRANSFER) {
             val categoryKind = if (current.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
             val uncategorized = if (categoryKind == CategoryKind.INCOME) R.string.uncategorized_income else R.string.uncategorized_expense
             val categories = state.categories.filter { !it.archived && it.kind == categoryKind }
-            val lineCurrency = current.input.merchantAmount?.currency ?: account?.currency
-            val itemized = current.input.receiptLines.isNotEmpty()
-            Text(stringResource(R.string.category_splits), style = MaterialTheme.typography.titleMedium)
-            current.input.allocations.forEachIndexed { index, allocation ->
-                val line = current.input.receiptLines.find { it.id == allocation.id }
-                Text("${index + 1}. ${account?.currency?.code.orEmpty()}")
-                if (line != null) {
-                    Field(R.string.receipt_description, line.description, { text ->
-                        model.updateEditor { draft ->
-                            draft.copy(
-                                input =
-                                    draft.input.copy(
-                                        receiptLines =
-                                            draft.input.receiptLines.map {
-                                                if (it.id == line.id) it.copy(description = text) else it
-                                            },
-                                    ),
-                            )
-                        }
-                    })
-                    Field(
-                        R.string.receipt_line_total,
-                        current.lineTexts[line.id] ?: lineCurrency
-                            ?.formatMinor(
-                                line.merchantMinor,
-                            ).orEmpty(),
-                        { text ->
-                            model.updateEditor { draft ->
-                                val parsed = runCatching { lineCurrency?.parseMinor(text) }.getOrNull() ?: 0L
-                                reallocateLines(
-                                    draft.copy(
-                                        lineTexts = draft.lineTexts + (line.id to text),
-                                        input =
-                                            draft.input.copy(
-                                                receiptLines =
-                                                    draft.input.receiptLines.map {
-                                                        if (it.id == line.id) it.copy(merchantMinor = parsed) else it
-                                                    },
-                                            ),
-                                    ),
-                                )
-                            }
-                        },
-                        number = true,
-                    )
-                }
-                Field(
-                    R.string.allocation_amount,
-                    current.allocationTexts[allocation.id] ?: account?.currency?.formatMinor(allocation.amountMinor).orEmpty(),
-                    { text ->
-                        model.updateEditor { draft ->
-                            val parsed = runCatching { account?.currency?.parseMinor(text) }.getOrNull() ?: 0L
-                            draft.copy(
-                                allocationTexts = draft.allocationTexts + (allocation.id to text),
-                                input =
-                                    draft.input.copy(
-                                        allocations =
-                                            draft.input.allocations.map {
-                                                if (it.id == allocation.id) it.copy(amountMinor = parsed) else it
-                                            },
-                                    ),
-                            )
-                        }
-                    },
-                    number = true,
-                )
+            val allocation = current.input.allocations.singleOrNull()
+            if (current.input.allocations.size <= 1 && current.input.receiptLines.isEmpty()) {
                 Choice(
                     R.string.category,
-                    categories.find { it.id == allocation.categoryId }?.name ?: stringResource(uncategorized),
+                    categories.find { it.id == allocation?.categoryId }?.name ?: stringResource(uncategorized),
                     listOf(null to stringResource(uncategorized)) + categories.map { it.id to it.name },
                 ) { selected ->
                     model.updateEditor { draft ->
-                        draft.copy(
-                            input =
-                                draft.input.copy(
-                                    allocations =
-                                        draft.input.allocations.map {
-                                            if (it.id == allocation.id) it.copy(categoryId = selected) else it
-                                        },
-                                ),
-                        )
+                        val old = draft.input.allocations.singleOrNull()
+                        val amount = draft.input.amountMinor?.let { runCatching { Math.absExact(it) }.getOrNull() } ?: 0L
+                        val row = Allocation(old?.id ?: UUID.randomUUID().toString(), amount, selected)
+                        draft.copy(input = draft.input.copy(allocations = listOf(row)))
                     }
                 }
-                if (current.input.allocations.size > 1) {
-                    TextButton(onClick = {
-                        model.updateEditor { draft ->
-                            val reduced =
-                                draft.copy(
-                                    allocationTexts = draft.allocationTexts - allocation.id,
-                                    lineTexts = draft.lineTexts - allocation.id,
-                                    input =
-                                        draft.input.copy(
-                                            allocations = draft.input.allocations.filterNot { it.id == allocation.id },
-                                            receiptLines = draft.input.receiptLines.filterNot { it.id == allocation.id },
-                                        ),
-                                )
-                            reallocateLines(reduced)
-                        }
-                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.remove_split)) }
+            } else {
+                val currency = account?.currency
+                val allocated =
+                    runCatching {
+                        current.input.allocations.fold(
+                            0L,
+                        ) { total, row -> Math.addExact(total, row.amountMinor) }
+                    }.getOrNull()
+                val actual = current.input.amountMinor?.let { runCatching { Math.absExact(it) }.getOrNull() }
+                val receiptTotal =
+                    runCatching {
+                        current.input.receiptLines.fold(0L) { total, line -> Math.addExact(total, line.merchantMinor) }
+                    }.getOrNull()
+                val expectedReceipt = current.input.merchantAmount?.minor ?: actual
+                val receiptStatus =
+                    if (receiptTotal ==
+                        expectedReceipt
+                    ) {
+                        stringResource(R.string.totals_match)
+                    } else {
+                        stringResource(R.string.totals_mismatch)
+                    }
+                TextButton(onClick = { showAllocationDetails = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                    Text(
+                        "${stringResource(
+                            R.string.allocation_details,
+                        )} · ${current.input.allocations.size} · ${currency?.code.orEmpty()} ${allocated?.let {
+                            currency?.formatMinor(
+                                it,
+                            )
+                        } ?: "?"}/${actual?.let {
+                            currency?.formatMinor(
+                                it,
+                            )
+                        } ?: "?"}${if (current.input.receiptLines.isNotEmpty()) " · $receiptStatus" else ""}",
+                    )
                 }
             }
+            if (current.input.allocations.size <= 1 && current.input.receiptLines.isEmpty()) {
+                TextButton(onClick = {
+                    showAllocationDetails = true
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.allocation_details)) }
+            }
+            if (showAllocationDetails) AllocationDetailsDialog(current, state, model) { showAllocationDetails = false }
+        }
+
+        val dateSummary =
+            runCatching { LocalDate.parse(dateText) }.getOrNull()?.format(
+                java.time.format.DateTimeFormatter
+                    .ofPattern("EEE, d MMM uuuu", java.util.Locale.getDefault()),
+            ) ?: dateText
+        val timeSummary =
+            runCatching { LocalTime.parse(timeText) }.getOrNull()?.format(
+                java.time.format.DateTimeFormatter
+                    .ofPattern("HH:mm", java.util.Locale.getDefault()),
+            ) ?: timeText
+        TextButton(
+            onClick = { showDateTimePicker = true },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("transaction-date-time"),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.transaction_date_time), style = MaterialTheme.typography.labelLarge)
+                Text("$dateSummary · $timeSummary", style = MaterialTheme.typography.bodyLarge)
+            }
+        }
+        if (showDateTimePicker) {
+            val initialDate = runCatching { LocalDate.parse(dateText) }.getOrNull() ?: current.input.date
+            val initialTime = runCatching { LocalTime.parse(timeText) }.getOrNull() ?: current.input.time
+            val datePickerState =
+                rememberDatePickerState(
+                    initialSelectedDateMillis = initialDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+                    initialDisplayMode = DisplayMode.Picker,
+                    yearRange = 1..9999,
+                )
+            val timePickerState = rememberTimePickerState(initialTime.hour, initialTime.minute, is24Hour = true)
+            AlertDialog(
+                onDismissRequest = {
+                    showDateTimePicker = false
+                    pickerShowsTime = false
+                },
+                title = { Text(stringResource(R.string.transaction_date_time)) },
+                text = {
+                    Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = !pickerShowsTime,
+                                onClick = { pickerShowsTime = false },
+                                label = { Text(stringResource(R.string.date)) },
+                            )
+                            FilterChip(
+                                selected = pickerShowsTime,
+                                onClick = { pickerShowsTime = true },
+                                label = { Text(stringResource(R.string.time)) },
+                            )
+                        }
+                        if (pickerShowsTime) {
+                            TimePicker(timePickerState)
+                        } else {
+                            DatePicker(datePickerState, showModeToggle = true)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val selectedDate =
+                            datePickerState.selectedDateMillis?.let { millis ->
+                                java.time.Instant
+                                    .ofEpochMilli(millis)
+                                    .atZone(ZoneOffset.UTC)
+                                    .toLocalDate()
+                            } ?: initialDate
+                        val selectedTime = LocalTime.of(timePickerState.hour, timePickerState.minute)
+                        model.updateEditor { draft ->
+                            draft.copy(
+                                dateText = selectedDate.toString(),
+                                timeText = selectedTime.toString().take(5),
+                                input = draft.input.copy(date = selectedDate, time = selectedTime),
+                            )
+                        }
+                        showDateTimePicker = false
+                        pickerShowsTime = false
+                    }) { Text(stringResource(R.string.done)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showDateTimePicker = false
+                        pickerShowsTime = false
+                    }) { Text(stringResource(R.string.cancel)) }
+                },
+            )
+        }
+
+        var moreOpen by rememberSaveable(id) {
+            mutableStateOf(
+                current.input.note.isNotBlank() || current.input.merchantAmount != null || current.input.tagIds.isNotEmpty() ||
+                    current.input.relatedEntryIds.isNotEmpty(),
+            )
+        }
+        TextButton(onClick = { moreOpen = !moreOpen }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            val selectedTagNames = current.input.tagIds.mapNotNull { id -> state.tags.find { it.id == id }?.name }
+            val summary =
+                listOfNotNull(
+                    current.input.note
+                        .takeIf { it.isNotBlank() }
+                        ?.let { stringResource(R.string.notes) },
+                    current.input.merchantAmount?.let { "${it.currency.code} ${it.currency.formatMinor(it.minor)}" },
+                    selectedTagNames.takeIf { it.isNotEmpty() }?.joinToString(),
+                    current.input.relatedEntryIds
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { stringResource(R.string.related_count, it.size) },
+                ).joinToString(" · ")
+            Text(if (summary.isBlank()) stringResource(R.string.more_details) else "${stringResource(R.string.more_details)} · $summary")
+        }
+        if (moreOpen) {
+            current.input.merchantAmount?.let {
+                Text("${stringResource(R.string.merchant_amount)} context: ${it.currency.code} ${it.currency.formatMinor(it.minor)}")
+            }
+            val merchantCodeText =
+                current.merchantCurrencyText ?: current.input.merchantAmount
+                    ?.currency
+                    ?.code
+                    .orEmpty()
+            val merchantAmountText =
+                current.merchantAmountText ?: current.input.merchantAmount
+                    ?.let { it.currency.formatMinor(it.minor) }
+                    .orEmpty()
+
+            fun changeMerchant(
+                draft: Draft,
+                text: String,
+                code: String,
+            ): Draft {
+                val merchantCurrency = currency(code)
+                val minor = runCatching { merchantCurrency?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
+                val money = if (merchantCurrency != null && minor != null) Money(minor, merchantCurrency) else null
+                return draft.copy(merchantAmountText = text, merchantCurrencyText = code, input = draft.input.copy(merchantAmount = money))
+            }
+            Field(R.string.merchant_amount, merchantAmountText, { text ->
+                model.updateEditor {
+                    changeMerchant(it, text, merchantCodeText)
+                }
+            }, number = true)
+            Field(
+                R.string.merchant_currency,
+                merchantCodeText,
+                { code -> model.updateEditor { changeMerchant(it, merchantAmountText, code) } },
+            )
+            var showTagPicker by rememberSaveable(id) { mutableStateOf(false) }
+            val keyboardController = LocalSoftwareKeyboardController.current
+            val selectedTags = current.input.tagIds.mapNotNull { tagId -> state.tags.find { it.id == tagId }?.name }
             TextButton(
                 onClick = {
-                    model.updateEditor { draft ->
-                        val id = UUID.randomUUID().toString()
-                        draft.copy(
-                            input =
-                                draft.input.copy(
-                                    allocations = draft.input.allocations + Allocation(id, 0),
-                                    receiptLines =
-                                        if (draft.input.receiptLines.isEmpty()) {
-                                            emptyList()
-                                        } else {
-                                            draft.input.receiptLines +
-                                                ReceiptLine(id, "", 0)
-                                        },
-                                ),
-                        )
-                    }
+                    keyboardController?.hide()
+                    showTagPicker = true
                 },
-                modifier =
-                    Modifier.heightIn(
-                        min = 48.dp,
-                    ),
-            ) { Text(stringResource(if (itemized) R.string.add_receipt_line else R.string.add_split)) }
-            if (!itemized) {
-                TextButton(onClick = {
-                    model.updateEditor { draft ->
-                        val receiptTotal = draft.input.merchantAmount?.minor ?: draft.input.amountMinor ?: return@updateEditor draft
-                        val proposed = proportionalAllocations(receiptTotal, draft.input.allocations.map { it.amountMinor })
-                        if (proposed !is LedgerResult.Success) return@updateEditor draft
-                        draft.copy(
-                            input =
-                                draft.input.copy(
-                                    receiptLines =
-                                        draft.input.allocations.mapIndexed { index, row ->
-                                            ReceiptLine(row.id, "Item ${index + 1}", proposed.value[index])
-                                        },
-                                ),
-                        )
-                    }
-                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.itemize_receipt)) }
-            } else {
-                TextButton(onClick = {
-                    model.updateEditor { draft ->
-                        draft.copy(lineTexts = emptyMap(), input = draft.input.copy(receiptLines = emptyList()))
-                    }
-                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.remove_itemization)) }
-            }
-            val allocationTotal =
-                runCatching {
-                    current.input.allocations.fold(
-                        0L,
-                    ) { sum, row -> Math.addExact(sum, row.amountMinor) }
-                }.getOrNull()
-            Text(
-                "${stringResource(
-                    R.string.allocated_total,
-                )}: ${account?.currency?.code.orEmpty()} ${allocationTotal?.let {
-                    account?.currency?.formatMinor(
-                        it,
-                    )
-                } ?: "?"} / $amountText",
-                color =
-                    if (allocationTotal ==
-                        current.input.amountMinor
-                    ) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-            )
-            if (itemized) {
-                val lineTotal =
-                    runCatching {
-                        current.input.receiptLines.fold(
-                            0L,
-                        ) { sum, line -> Math.addExact(sum, line.merchantMinor) }
-                    }.getOrNull()
-                val expected = current.input.merchantAmount?.minor ?: current.input.amountMinor
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
                 Text(
-                    "${stringResource(
-                        R.string.receipt_total,
-                    )}: ${lineCurrency?.code.orEmpty()} ${lineTotal?.let {
-                        lineCurrency?.formatMinor(
-                            it,
-                        )
-                    } ?: "?"} / ${expected?.let { lineCurrency?.formatMinor(it) } ?: "?"}",
-                    color = if (lineTotal == expected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                    if (selectedTags.isEmpty()) {
+                        stringResource(R.string.tags)
+                    } else {
+                        "${stringResource(R.string.tags)} · ${selectedTags.joinToString()}"
+                    },
                 )
             }
+            if (showTagPicker) {
+                ModalBottomSheet(onDismissRequest = { showTagPicker = false }) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .imePadding()
+                            .heightIn(max = 560.dp)
+                            .padding(horizontal = 24.dp),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            Text(stringResource(R.string.tags), style = MaterialTheme.typography.titleLarge)
+                            TextButton(
+                                onClick = { showTagPicker = false },
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("entry-tag-picker-done"),
+                            ) {
+                                Text(stringResource(R.string.done))
+                            }
+                        }
+                        val availableTags = state.tags.filter { !it.archived || it.id in current.input.tagIds }
+                        LazyColumn(
+                            Modifier.weight(1f, fill = false).heightIn(max = 480.dp).testTag("entry-tag-picker-list"),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(availableTags, key = { it.id }) { tag ->
+                                val checked = tag.id in current.input.tagIds
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("entry-tag-${tag.id}")
+                                        .selectable(checked, role = Role.Checkbox) {
+                                            model.updateEditor { draft ->
+                                                draft.copy(
+                                                    input =
+                                                        draft.input.copy(
+                                                            tagIds =
+                                                                if (checked) {
+                                                                    draft.input.tagIds - tag.id
+                                                                } else {
+                                                                    draft.input.tagIds +
+                                                                        tag.id
+                                                                },
+                                                        ),
+                                                )
+                                            }
+                                        },
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(checked, onCheckedChange = null)
+                                    Text(tag.name)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            var showRelatedPicker by rememberSaveable(id) { mutableStateOf(false) }
+            var relatedQuery by rememberSaveable(id) { mutableStateOf("") }
+            TextButton(onClick = { showRelatedPicker = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text(
+                    stringResource(R.string.related_transactions) +
+                        if (current.input.relatedEntryIds.isEmpty()) "" else " · ${current.input.relatedEntryIds.size}",
+                )
+            }
+            LaunchedEffect(showRelatedPicker, relatedQuery, current.input.relatedEntryIds) {
+                if (showRelatedPicker) model.searchRelatedEntries(relatedQuery, current.input.relatedEntryIds)
+            }
+            if (showRelatedPicker) {
+                ModalBottomSheet(onDismissRequest = { showRelatedPicker = false }) {
+                    Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 24.dp)) {
+                        Text(stringResource(R.string.related_transactions), style = MaterialTheme.typography.titleLarge)
+                        OutlinedTextField(
+                            relatedQuery,
+                            { relatedQuery = it },
+                            label = { Text(stringResource(R.string.search_related)) },
+                            singleLine = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("field-${stringResource(R.string.search_related)}"),
+                        )
+                        state.relatedError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+                        val candidates =
+                            (
+                                state.relatedEntries + state.entries.filter { it.id in current.input.relatedEntryIds } +
+                                    state.trashed.filter { it.id in current.input.relatedEntryIds }
+                            ).distinctBy { it.id }
+                                .filter {
+                                    it.id != current.entryId &&
+                                        (it.status == EntryStatus.POSTED || it.id in current.input.relatedEntryIds)
+                                }
+                        LazyColumn(Modifier.heightIn(max = 440.dp)) {
+                            items(candidates, key = { it.id }) { related ->
+                                val checked = related.id in current.input.relatedEntryIds
+                                val enabled = related.status == EntryStatus.POSTED || checked
+                                val relatedAccount = state.accounts.find { it.account.id == related.input.accountId }?.account
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 56.dp)
+                                        .testTag("related-entry-${related.id}")
+                                        .selectable(checked, enabled = enabled, role = Role.Checkbox) {
+                                            model.updateEditor { draft ->
+                                                draft.copy(
+                                                    input =
+                                                        draft.input.copy(
+                                                            relatedEntryIds =
+                                                                if (checked) {
+                                                                    draft.input.relatedEntryIds - related.id
+                                                                } else {
+                                                                    draft.input.relatedEntryIds + related.id
+                                                                },
+                                                        ),
+                                                )
+                                            }
+                                        },
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(checked, onCheckedChange = null, enabled = enabled)
+                                    Column {
+                                        Text(
+                                            related.input.merchant.ifBlank { related.input.kind.name },
+                                            style = MaterialTheme.typography.bodyLarge,
+                                        )
+                                        Text(
+                                            "${related.input.date} · ${relatedAccount?.currency?.code.orEmpty()} " +
+                                                relatedAccount?.currency?.formatMinor(related.input.amountMinor ?: 0L).orEmpty(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                }
+                            }
+                            if (candidates.isEmpty() && !state.relatedLoading) {
+                                item { Text(stringResource(R.string.no_related_transactions), Modifier.padding(vertical = 16.dp)) }
+                            }
+                            if (state.relatedLoading) item { CircularProgressIndicator(Modifier.padding(16.dp)) }
+                            if (state.relatedNext != null && !state.relatedLoading) {
+                                item {
+                                    TextButton(onClick = model::loadMoreRelatedEntries, modifier = Modifier.heightIn(min = 48.dp)) {
+                                        Text(stringResource(R.string.load_more))
+                                    }
+                                }
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                showRelatedPicker = false
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text(stringResource(R.string.done))
+                        }
+                    }
+                }
+            }
+            Field(
+                R.string.notes,
+                current.input.note,
+                { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } },
+                multiline = true,
+            )
         }
-        Text(stringResource(R.string.tags), style = MaterialTheme.typography.titleMedium)
-        state.tags.filter { !it.archived || it.id in current.input.tagIds }.forEach { tag ->
-            val checked = tag.id in current.input.tagIds
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
-                    model.updateEditor { draft ->
-                        draft.copy(
-                            input = draft.input.copy(tagIds = if (checked) draft.input.tagIds - tag.id else draft.input.tagIds + tag.id),
-                        )
-                    }
-                },
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Checkbox(checked, { selected ->
-                    model.updateEditor { draft ->
-                        draft.copy(
-                            input =
-                                draft.input.copy(
-                                    tagIds = if (selected) draft.input.tagIds + tag.id else draft.input.tagIds - tag.id,
-                                ),
-                        )
-                    }
-                })
-                Text(tag.name)
+        val unknown = current.input.amountMinor == null || (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
+        if (unknown) {
+            TextButton(onClick = saveIncomplete, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.save_incomplete))
             }
         }
-        Field(R.string.notes, current.input.note, { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } })
-        val unknown =
-            current.input.amountMinor == null ||
-                (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
-        if (unknown) {
-            TextButton(
-                onClick = saveIncomplete,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text(stringResource(R.string.save_incomplete)) }
-        }
-        Button(onClick = model::confirmEditor, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.post)) }
-        TextButton(onClick = discard, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.discard_draft)) }
     }
 }
 
@@ -1572,7 +2736,15 @@ internal fun BookScreen(
                 } else if (includeSplits) {
                     source.allocations.map { if (includeAmounts) it else it.copy(amountMinor = 0) }
                 } else if (includeAmounts && sourceAmount != null) {
-                    listOf(Allocation(UUID.randomUUID().toString(), sourceAmount, source.allocations.firstOrNull()?.categoryId))
+                    listOf(
+                        Allocation(
+                            UUID.randomUUID().toString(),
+                            runCatching {
+                                Math.absExact(sourceAmount)
+                            }.getOrDefault(0L),
+                            source.allocations.firstOrNull()?.categoryId,
+                        ),
+                    )
                 } else {
                     emptyList()
                 }
@@ -1588,7 +2760,7 @@ internal fun BookScreen(
                         } else {
                             emptyList()
                         },
-                    purchaseId = null,
+                    relatedEntryIds = emptyList(),
                 )
             model.saveTemplate(EntryTemplate(id, name.trim(), input))
         }, enabled = !state.saving && name.isNotBlank()) { Text(stringResource(R.string.save)) }

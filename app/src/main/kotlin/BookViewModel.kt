@@ -56,6 +56,11 @@ data class BookState(
     val templates: List<EntryTemplate> = emptyList(),
     val entries: List<SavedEntry> = emptyList(),
     val trashed: List<SavedEntry> = emptyList(),
+    val relatedEntries: List<SavedEntry> = emptyList(),
+    val relatedNext: LedgerCursor? = null,
+    val relatedQuery: String = "",
+    val relatedLoading: Boolean = false,
+    val relatedError: Int? = null,
     val searchEntries: List<SavedEntry> = emptyList(),
     val searchNext: LedgerCursor? = null,
     val drafts: List<Draft> = emptyList(),
@@ -77,6 +82,7 @@ internal class BookViewModel(
     val detail = mutableDetail.asStateFlow()
     private val editorMutex = Mutex()
     private var editorSaveJob: Job? = null
+    private var relatedSearchJob: Job? = null
     private var persistedDraft: Draft? = null
     private val completed = Channel<Unit>(Channel.BUFFERED)
     val saved = completed.receiveAsFlow()
@@ -288,6 +294,57 @@ internal class BookViewModel(
         }
     }
 
+    fun searchRelatedEntries(
+        text: String,
+        referencedIds: List<String>,
+    ) {
+        val book = ledger ?: return
+        relatedSearchJob?.cancel()
+        mutable.value = mutable.value.copy(relatedQuery = text, relatedLoading = true, relatedError = null)
+        relatedSearchJob =
+            viewModelScope.launch {
+                val result = book.search(LedgerFilter(status = EntryStatus.POSTED, text = text))
+                val referenced =
+                    referencedIds.mapNotNull { id ->
+                        (book.entry(id) as? LedgerResult.Success)?.value
+                    }
+                if (mutable.value.relatedQuery != text) return@launch
+                if (result is LedgerResult.Success) {
+                    mutable.value =
+                        mutable.value.copy(
+                            relatedEntries = (result.value.entries + referenced).distinctBy { it.id },
+                            relatedNext = result.value.next,
+                            relatedLoading = false,
+                        )
+                } else {
+                    mutable.value = mutable.value.copy(relatedLoading = false, relatedError = failure(result))
+                }
+            }
+    }
+
+    fun loadMoreRelatedEntries() {
+        val book = ledger ?: return
+        val cursor = mutable.value.relatedNext ?: return
+        val query = mutable.value.relatedQuery
+        mutable.value = mutable.value.copy(relatedLoading = true, relatedError = null)
+        relatedSearchJob?.cancel()
+        relatedSearchJob =
+            viewModelScope.launch {
+                val result = book.search(LedgerFilter(status = EntryStatus.POSTED, text = query), cursor)
+                if (mutable.value.relatedQuery != query) return@launch
+                if (result is LedgerResult.Success) {
+                    mutable.value =
+                        mutable.value.copy(
+                            relatedEntries = (mutable.value.relatedEntries + result.value.entries).distinctBy { it.id },
+                            relatedNext = result.value.next,
+                            relatedLoading = false,
+                        )
+                } else {
+                    mutable.value = mutable.value.copy(relatedLoading = false, relatedError = failure(result))
+                }
+            }
+    }
+
     fun saveGroup(
         group: AccountGroup,
         old: AccountGroup?,
@@ -395,7 +452,7 @@ internal class BookViewModel(
         viewModelScope.launch {
             val input =
                 EntryInput(
-                    EntryKind.REFUND,
+                    EntryKind.EXPENSE,
                     LocalDate.now(),
                     LocalTime.now().withNano(0),
                     account.id,
@@ -407,7 +464,7 @@ internal class BookViewModel(
                             .find { it.id == allocationId }
                             ?.description
                             .orEmpty(),
-                    purchaseId = purchase.id,
+                    relatedEntryIds = listOf(purchase.id),
                 )
             val draft =
                 Draft(

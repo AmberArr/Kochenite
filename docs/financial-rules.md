@@ -7,19 +7,25 @@ zero income/spending. Each example starts independently from the given balances.
 ## Equations
 
 For each account, balance = sum of its signed postings for POSTED transactions.
-For each currency and date range, income = sum of INCOME allocations;
-spending = sum of EXPENSE allocations − sum of REFUND allocations;
+For each currency and date range, an INCOME allocation contributes its signed
+actual amount's direction: positive Income adds income; negative Income reverses
+it. An EXPENSE allocation contributes its magnitude when the actual Expense is
+negative and subtracts its magnitude when the Expense is positive. Thus
+spending = negative-Expense allocations − positive-Expense credits;
 net flow = income − spending. Receipt lines are explanations, never extra totals.
 Net worth sums included accounts by currency, including archived and negative
 accounts. Draft, incomplete and trash rows contribute nothing. Opening balances
 and adjustments affect balances only. No report converts historical amounts.
 
-Expense: one negative posting −A, positive allocations summing to A.
-Income/refund: one positive posting A, positive allocations summing to A.
+Expense and Income: one posting equal to the signed actual amount, with
+nonnegative allocations summing exactly to its absolute magnitude. Negative
+Expense is spending; positive Expense is a credit that offsets spending. Positive
+Income is income; negative Income is an income reversal.
 Transfer: different accounts, negative source −S and positive destination R,
 no allocations; S = R when their currencies match. Cross-currency S and R are
 independent actual amounts. Opening/adjustment: one signed posting, no allocations.
-Zero openings/adjustments are valid. Other posted amounts must be positive.
+Zero openings/adjustments are valid. Expense/Income amounts must be nonzero;
+transfers must have positive sent/received amounts.
 No arithmetic may wrap; unrepresentable results are rejected explicitly.
 
 Each account's currency is authoritative and permanently locks after its first
@@ -33,7 +39,7 @@ Categories are two levels, with direct parent allocations permitted and counted 
 
 | Case | Starting balances | Postings | Allocations | Ending balances | Income / spending / net flow |
 | --- | --- | --- | --- | --- | --- |
-| Ordinary expense | Cash USD 10000 | Cash −1234 | Food USD 1234 | Cash USD 8766 | USD 0 / 1234 / −1234 |
+| Ordinary expense (signed amount −1234) | Cash USD 10000 | Cash −1234 | Food USD 1234 | Cash USD 8766 | USD 0 / 1234 / −1234 |
 | Income | Bank USD 0 | Bank +50000 | Salary USD 50000 | Bank USD 50000 | USD 50000 / 0 / 50000 |
 | Negative account | Card USD −20000 | Card −3000 | Food USD 3000 | Card USD −23000 | USD 0 / 3000 / −3000 |
 | Signed opening | Card USD 0 | Card −20000 | none | Card USD −20000 | USD 0 / 0 / 0 |
@@ -50,14 +56,15 @@ Categories are two levels, with direct parent allocations permitted and counted 
 | Incomplete transfer | Bank USD 10000; Cash JPY 0; sent USD 1000, received unknown | none on either account | none | unchanged | all zero |
 | Split expense | Bank USD 10000 | Bank −1500 | Food USD 1000; Household USD 500 | Bank USD 8500 | USD 0 / 1500 / −1500 |
 | Parent/child split | Bank USD 10000 | Bank −1500 | Food USD 500; Food/Groceries USD 1000 | Bank USD 8500 | Food rollup 1500; USD 0 / 1500 / −1500 |
-| Standalone refund | Bank USD 0 | Bank +200 | Food USD 200 (refund) | Bank USD 200 | USD 0 / −200 / +200 |
-| Different-account partial refund | Card USD −1500; Bank USD 0 | Bank +400 | Food USD 400 (refund linked to purchase) | Card −1500; Bank 400 | USD 0 / −400 / +400 in refund period |
-| Second partial refund | Card USD −1500; Bank USD 400 | Bank +100 | Food USD 100 (refund, same purchase) | Card −1500; Bank 500 | USD 0 / −100 / +100 in second refund period |
+| Expense credit (+200) | Bank USD 0 | Bank +200 | Food USD 200 | Bank USD 200 | USD 0 / −200 / +200 |
+| Different-account partial credit | Card USD −1500; Bank USD 0 | Bank +400 | Food USD 400 | Card −1500; Bank 400 | USD 0 / −400 / +400 in credit period |
+| Second partial credit | Card USD −1500; Bank USD 400 | Bank +100 | Food USD 100 | Card −1500; Bank 500 | USD 0 / −100 / +100 in second credit period |
 | Three-decimal expense | Cash KWD 10000 | Cash −1234 | Food KWD 1234 | Cash KWD 8766 | KWD 0 / 1234 / −1234 |
 
-A linked refund provides defaults/context; it need not use the purchase account,
-amount, exchange rate or posting period. Deleting the purchase link never changes
-a surviving refund's amounts. Linkage does not cap or automatically infer refunds.
+A contextual reference can point to multiple posted transactions of any kind.
+It never supplies defaults or changes postings, allocations, reports or the
+transaction's sign. References are preserved while editing, remain through trash,
+and detach if their target is permanently purged. Copies and templates omit them.
 
 Foreign receipt example: merchant JPY lines [500, 300, 200] sum to JPY 1000.
 Actual USD 673 charge gives exact proportions [336.5, 201.9, 134.6] minor units.
@@ -82,14 +89,14 @@ against total 1000 fails reconciliation; no tax or adjustment is invented.
   without losing the draft or overwriting current records. Tokens are current-state
   concurrency markers, not revision history and cannot restore previous versions.
 - Posted → trash: remove its contribution once, retaining the aggregate. Trash →
-  posted: validate and restore once. Purchase/refund linkage is context only.
+  posted: validate and restore once. Related-transaction references are context only.
 - Trash → permanent purge: confirmed deletion removes the aggregate and dependents;
-  surviving refunds detach, account currency stays locked. No automatic purge.
+  inbound transaction references detach, account currency stays locked. No automatic purge.
 - Draft → discarded: explicit deletion has no effect on balances or spending.
 - Any failed mutation → rollback: ledger and persisted draft stay as before the call.
   Temporary storage errors permit retry; recovery-required preserves database files.
 
-Editing the USD 1234 expense above to USD 1500 replaces Cash −1234 with −1500
-and Food 1234 with 1500 atomically: balance 8500, spending 1500. Trash returns
+Editing the USD 1234 expense above to signed amount −1500 replaces Cash −1234
+with −1500 and Food 1234 with 1500 atomically: balance 8500, spending 1500. Trash returns
 balance 10000/spending 0, restore returns 8500/1500, purge after trash keeps
 10000/0. A stale edit or failed write leaves all these totals unchanged.

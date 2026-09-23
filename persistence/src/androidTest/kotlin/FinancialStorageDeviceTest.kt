@@ -85,7 +85,7 @@ class FinancialStorageDeviceTest {
             today,
             LocalTime.NOON,
             "cash",
-            amount,
+            -amount,
             allocations = listOf(Allocation("a", amount)),
             merchant = "Synthetic 合成",
             note = "日本語 • café",
@@ -133,6 +133,7 @@ class FinancialStorageDeviceTest {
                 expense(1000).copy(
                     kind = EntryKind.TRANSFER,
                     destinationAccountId = "yen",
+                    amountMinor = 1000,
                     receivedMinor = 1500,
                     allocations = emptyList(),
                     merchantAmount = Money(1550, BookCurrency("JPY", 0)),
@@ -171,18 +172,23 @@ class FinancialStorageDeviceTest {
             assertEquals(badDate, success(ledger.draft(badDate.id)))
         }
 
-    @Test fun linkedPartialAndStandaloneRefundsUseTheirOwnPeriodAndReceivingAccount() =
+    @Test fun signedExpenseCreditsUseTheirOwnPeriodAndRelatedRecords() =
         runBlocking {
             val ledger = open()
             seed(ledger)
             val purchaseDate = today.withDayOfMonth(1)
             val purchase = post(ledger, expense(1000).copy(date = purchaseDate))
-            val first = post(ledger, expense(300).copy(kind = EntryKind.REFUND, accountId = "card", purchaseId = purchase.id))
-            val second = post(ledger, expense(100).copy(kind = EntryKind.REFUND, accountId = "card", purchaseId = purchase.id))
-            val standalone = post(ledger, expense(200).copy(kind = EntryKind.REFUND))
-            assertEquals(purchase.id, first.input.purchaseId)
-            assertEquals(purchase.id, second.input.purchaseId)
-            assertEquals(null, standalone.input.purchaseId)
+            val first = post(ledger, expense(300).copy(amountMinor = 300, accountId = "card", relatedEntryIds = listOf(purchase.id)))
+            val second = post(ledger, expense(100).copy(amountMinor = 100, accountId = "card", relatedEntryIds = listOf(purchase.id)))
+            val standalone = post(ledger, expense(200).copy(amountMinor = 200))
+            assertEquals(purchase.id, first.input.relatedEntryIds.single())
+            assertEquals(purchase.id, second.input.relatedEntryIds.single())
+            assertEquals(emptyList<String>(), standalone.input.relatedEntryIds)
+            val edit = success(ledger.beginEdit(first.id))
+            success(ledger.confirm(edit.id, edit.token))
+            assertEquals(listOf(purchase.id), success(ledger.entry(first.id)).input.relatedEntryIds)
+            val copied = success(ledger.copyEntry(first.id))
+            assertEquals(emptyList<String>(), copied.input.relatedEntryIds)
             assertEquals(-800L, success(ledger.balance("cash")))
             assertEquals(400L, success(ledger.balance("card")))
             assertEquals(1000L, success(ledger.totals(purchaseDate, purchaseDate)).single().spendingMinor)
@@ -266,6 +272,7 @@ class FinancialStorageDeviceTest {
                         1,
                     ).copy(
                         kind = EntryKind.TRANSFER,
+                        amountMinor = 1,
                         accountId = "yen",
                         destinationAccountId = "cash",
                         receivedMinor = 1,
@@ -285,7 +292,7 @@ class FinancialStorageDeviceTest {
             val ledger = open()
             seed(ledger)
             val purchase = post(ledger, expense(1500))
-            val refund = post(ledger, expense(400).copy(kind = EntryKind.REFUND, accountId = "card", purchaseId = purchase.id))
+            val refund = post(ledger, expense(400).copy(amountMinor = 400, accountId = "card", relatedEntryIds = listOf(purchase.id)))
             assertEquals(1100L, success(ledger.totals(today, today)).single().spendingMinor)
             var trashed = success(ledger.trash(purchase.id, purchase.token))
             assertEquals(0L, success(ledger.balance("cash")))
@@ -298,7 +305,7 @@ class FinancialStorageDeviceTest {
             success(ledger.purge(purchase.id, trashed.token))
             assertEquals(LedgerResult.Missing, ledger.entry(purchase.id))
             val surviving = success(ledger.entry(refund.id))
-            assertEquals(null, surviving.input.purchaseId)
+            assertEquals(emptyList<String>(), surviving.input.relatedEntryIds)
             assertEquals(400L, surviving.input.amountMinor)
             assertEquals(400L, success(ledger.balance("card")))
             assertEquals(LedgerResult.Conflict, ledger.confirm(refundEdit.id, refundEdit.token))
@@ -318,6 +325,7 @@ class FinancialStorageDeviceTest {
                     ledger,
                     expense().copy(
                         kind = EntryKind.TRANSFER,
+                        amountMinor = 1234,
                         destinationAccountId = "yen",
                         receivedMinor = null,
                         allocations = emptyList(),
@@ -484,7 +492,7 @@ class FinancialStorageDeviceTest {
                     .none { id -> source.input.allocations.any { it.id == id } },
             )
             assertEquals(source.input.allocations.map { it.amountMinor }, copied.input.allocations.map { it.amountMinor })
-            assertEquals(null, copied.input.purchaseId)
+            assertEquals(emptyList<String>(), copied.input.relatedEntryIds)
             val template =
                 EntryTemplate(
                     "routine",
@@ -624,6 +632,75 @@ class FinancialStorageDeviceTest {
                 candidate.close()
             }
             assertEquals(-9007199254740993L, success(open().balance("cash")))
+        }
+
+    @Test fun legacyDraftCodecMigratesExpenseSignsAndRelatedReferences() {
+        val payload =
+            """
+            {
+              "version": 1,
+              "kind": "EXPENSE",
+              "date": "2026-09-22",
+              "time": "12:00",
+              "accountId": "cash",
+              "amount": "1234",
+              "destination": null,
+              "received": null,
+              "merchant": "Legacy",
+              "note": "",
+              "purchase": "purchase",
+              "amountText": "12.34",
+              "allocations": [{"id": "a", "amount": "1234", "category": null}],
+              "receiptLines": [],
+              "tagIds": []
+            }
+            """.trimIndent()
+        val draft = DraftRow("draft", "entry", "token", null, false, payload).model()
+        assertEquals(EntryKind.EXPENSE, draft.input.kind)
+        assertEquals(-1234L, draft.input.amountMinor)
+        assertEquals("-12.34", draft.amountText)
+        assertEquals(listOf("purchase"), draft.input.relatedEntryIds)
+    }
+
+    @Test fun signedEntryMigrationPreservesPostingsReportsAndOldPurchaseLinks() =
+        runBlocking {
+            migration.createDatabase(name, 5).use { old ->
+                old.execSQL(
+                    "INSERT INTO accounts (id,name,currency,scale,archived,includeInNetWorth,currencyLocked,groupId,type,position) VALUES ('cash','Cash','USD',2,0,1,1,NULL,'',0)",
+                )
+                old.execSQL(
+                    "INSERT INTO accounts (id,name,currency,scale,archived,includeInNetWorth,currencyLocked,groupId,type,position) VALUES ('card','Card','USD',2,0,1,1,NULL,'',1)",
+                )
+                old.execSQL(
+                    "INSERT INTO entries (id,token,sourceDraftId,status,kind,date,time,accountId,amountMinor,destinationAccountId,receivedMinor,merchant,note,merchantMinor,merchantCurrency,merchantScale,purchaseId) VALUES ('purchase','p','pd','POSTED','EXPENSE','2026-09-01','12:00','cash',1000,NULL,NULL,'Shop','',NULL,NULL,NULL,NULL)",
+                )
+                old.execSQL(
+                    "INSERT INTO entries (id,token,sourceDraftId,status,kind,date,time,accountId,amountMinor,destinationAccountId,receivedMinor,merchant,note,merchantMinor,merchantCurrency,merchantScale,purchaseId) VALUES ('credit','c','cd','POSTED','REFUND','2026-09-22','12:00','card',300,NULL,NULL,'Shop','',NULL,NULL,NULL,'purchase')",
+                )
+                old.execSQL("INSERT INTO postings VALUES ('purchase','cash',-1000)")
+                old.execSQL("INSERT INTO postings VALUES ('credit','card',300)")
+                old.execSQL("INSERT INTO allocations (entryId,id,position,amountMinor,categoryId) VALUES ('purchase','p-line',0,1000,NULL)")
+                old.execSQL("INSERT INTO allocations (entryId,id,position,amountMinor,categoryId) VALUES ('credit','c-line',0,300,NULL)")
+            }
+            migration.runMigrationsAndValidate(name, 6, true, ledgerMigration5To6).close()
+            val ledger = open()
+            val purchase = success(ledger.entry("purchase"))
+            val credit = success(ledger.entry("credit"))
+            assertEquals(-1000L, purchase.input.amountMinor)
+            assertEquals(EntryKind.EXPENSE, credit.input.kind)
+            assertEquals(300L, credit.input.amountMinor)
+            assertEquals(listOf("purchase"), credit.input.relatedEntryIds)
+            assertEquals(-1000L, success(ledger.balance("cash")))
+            assertEquals(300L, success(ledger.balance("card")))
+            assertEquals(1000L, success(ledger.totals(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-01"))).single().spendingMinor)
+            assertEquals(-300L, success(ledger.totals(today, today)).single().spendingMinor)
+            val edit = success(ledger.beginEdit(credit.id))
+            success(ledger.confirm(edit.id, edit.token))
+            assertEquals(300L, success(ledger.balance("card")))
+            val trashed = success(ledger.trash(purchase.id, purchase.token))
+            assertEquals(listOf("purchase"), success(ledger.entry(credit.id)).input.relatedEntryIds)
+            success(ledger.purge(purchase.id, trashed.token))
+            assertEquals(emptyList<String>(), success(ledger.entry(credit.id)).input.relatedEntryIds)
         }
 
     @Test fun lockedTemporaryAndCorruptStoragePreserveFiles() =

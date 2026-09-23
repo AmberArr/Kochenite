@@ -23,8 +23,8 @@ class LedgerTest {
             today,
             LocalTime.NOON,
             "cash",
-            amount,
-            allocations = listOf(Allocation("food", amount)),
+            if (amount > 0) -amount else amount,
+            allocations = listOf(Allocation("food", runCatching { Math.absExact(amount) }.getOrDefault(Long.MAX_VALUE))),
         )
 
     private fun check(input: EntryInput) = validateEntry(input, accounts, emptyMap(), today)
@@ -40,16 +40,23 @@ class LedgerTest {
         assertFailsWith<IllegalArgumentException> { BookCurrency("usd", 2) }
     }
 
-    @Test fun expenseIncomeRefundAndSignedAdjustmentsProduceExpectedPostings() {
+    @Test fun expenseAndIncomeSignsAndSignedAdjustmentsProduceExpectedPostings() {
         for ((kind, amount, expected) in listOf(
-            Triple(EntryKind.EXPENSE, 1234L, -1234L),
+            Triple(EntryKind.EXPENSE, -1234L, -1234L),
+            Triple(EntryKind.EXPENSE, 1234L, 1234L),
             Triple(EntryKind.INCOME, 1234L, 1234L),
-            Triple(EntryKind.REFUND, 1234L, 1234L),
             Triple(EntryKind.OPENING, -20000L, -20000L),
             Triple(EntryKind.ADJUSTMENT, Long.MIN_VALUE, Long.MIN_VALUE),
             Triple(EntryKind.OPENING, 0L, 0L),
         )) {
-            val allocations = if (kind in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)) emptyList() else listOf(Allocation("a", amount))
+            val allocations =
+                if (kind in
+                    setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)
+                ) {
+                    emptyList()
+                } else {
+                    listOf(Allocation("a", runCatching { Math.absExact(amount) }.getOrDefault(Long.MAX_VALUE)))
+                }
             val result =
                 assertIs<LedgerResult.Success<ValidatedEntry>>(
                     check(expense().copy(kind = kind, amountMinor = amount, allocations = allocations)),
@@ -62,7 +69,13 @@ class LedgerTest {
         val transfer =
             expense(
                 1000,
-            ).copy(kind = EntryKind.TRANSFER, destinationAccountId = "card", receivedMinor = 1000, allocations = emptyList())
+            ).copy(
+                kind = EntryKind.TRANSFER,
+                amountMinor = 1000,
+                destinationAccountId = "card",
+                receivedMinor = 1000,
+                allocations = emptyList(),
+            )
         assertEquals(
             listOf(Posting("cash", -1000), Posting("card", 1000)),
             assertIs<LedgerResult.Success<ValidatedEntry>>(check(transfer)).value.postings,
@@ -86,7 +99,7 @@ class LedgerTest {
             LedgerResult.Invalid(InvalidReason.ALLOCATIONS),
             check(expense().copy(allocations = listOf(Allocation("a", 617), Allocation("a", 617)))),
         )
-        assertEquals(LedgerResult.Invalid(InvalidReason.AMOUNT), check(expense(Long.MIN_VALUE)))
+        assertEquals(LedgerResult.Invalid(InvalidReason.OVERFLOW), check(expense(Long.MIN_VALUE)))
     }
 
     @Test fun missingAndFutureActualAmountsNeverBecomePostings() {
@@ -110,7 +123,7 @@ class LedgerTest {
         assertEquals(
             LedgerResult.Invalid(InvalidReason.CATEGORY),
             validateEntry(
-                input.copy(kind = EntryKind.INCOME),
+                input.copy(kind = EntryKind.INCOME, amountMinor = 1234, allocations = listOf(Allocation("a", 1234, "food"))),
                 accounts,
                 mapOf("food" to food),
                 today,
@@ -154,16 +167,8 @@ class LedgerTest {
             ),
         )
         assertEquals(LedgerResult.Invalid(InvalidReason.ALLOCATIONS), check(input.copy(allocations = input.allocations.dropLast(1))))
-        assertEquals(
-            LedgerResult.Invalid(InvalidReason.TEXT_TOO_LONG),
-            check(
-                input.copy(
-                    receiptLines =
-                        input.receiptLines.map {
-                            it.copy(description = "")
-                        },
-                ),
-            ),
+        assertIs<LedgerResult.Success<ValidatedEntry>>(
+            check(input.copy(receiptLines = input.receiptLines.map { it.copy(description = "") })),
         )
     }
 

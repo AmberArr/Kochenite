@@ -141,7 +141,7 @@ class RoomLedger internal constructor(
             db.withTransaction {
                 if (!validId(template.id) || template.name.isBlank() || template.name.length > 100 ||
                     template.input.kind in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT) ||
-                    template.input.purchaseId != null
+                    template.input.relatedEntryIds.isNotEmpty()
                 ) {
                     invalid(InvalidReason.STATE)
                 }
@@ -166,7 +166,7 @@ class RoomLedger internal constructor(
         return input.copy(
             date = today(),
             time = LocalTime.now().withNano(0),
-            purchaseId = null,
+            relatedEntryIds = emptyList(),
             allocations = input.allocations.map { it.copy(id = ids.getValue(it.id)) },
             receiptLines = input.receiptLines.map { it.copy(id = ids[it.id] ?: token()) },
         )
@@ -250,7 +250,7 @@ class RoomLedger internal constructor(
         storageResult {
             if (start > end) invalid(InvalidReason.STATE)
             dao.totals(start.toString(), end.toString()).map {
-                val spending = Math.subtractExact(it.expenseMinor, it.refundMinor)
+                val spending = it.expenseMinor
                 val total = CurrencyTotals(BookCurrency(it.currency, it.scale), it.incomeMinor, spending)
                 total.netFlowMinor // Validate the representability of the derived total.
                 total
@@ -472,14 +472,14 @@ class RoomLedger internal constructor(
                     val tag = dao.tag(id) ?: invalid(InvalidReason.TAG)
                     if (tag.archived && id !in priorTagIds) invalid(InvalidReason.TAG)
                 }
-                draft.input.purchaseId?.let {
-                    if (it == draft.entryId || dao.entry(it)?.kind != EntryKind.EXPENSE.name) invalid(InvalidReason.REFUND_LINK)
-                }
-                if (
-                    original?.kind == EntryKind.EXPENSE.name && draft.input.kind != EntryKind.EXPENSE &&
-                    dao.refunds(original.id).isNotEmpty()
-                ) {
-                    invalid(InvalidReason.REFUND_LINK)
+                val priorReferences = if (original == null) emptyList() else dao.references(original.id)
+                draft.input.relatedEntryIds.forEach { id ->
+                    val target = dao.entry(id)
+                    if (id == draft.entryId || target == null ||
+                        (target.status != EntryStatus.POSTED.name && id !in priorReferences)
+                    ) {
+                        invalid(InvalidReason.RELATED_ENTRY)
+                    }
                 }
                 val input = valid.input
                 val row =
@@ -500,11 +500,12 @@ class RoomLedger internal constructor(
                         input.merchantAmount?.minor,
                         input.merchantAmount?.currency?.code,
                         input.merchantAmount?.currency?.scale,
-                        input.purchaseId,
+                        null,
                     )
                 if (original == null) {
                     dao.insertEntry(row)
                 } else {
+                    dao.deleteReferences(row.id)
                     dao.deletePostings(row.id)
                     dao.deleteReceiptLines(row.id)
                     dao.deleteEntryTags(row.id)
@@ -521,6 +522,7 @@ class RoomLedger internal constructor(
                 input.receiptLines.forEachIndexed { position, line ->
                     dao.insertReceiptLine(ReceiptLineRow(row.id, line.id, position, line.description, line.merchantMinor))
                 }
+                input.relatedEntryIds.forEachIndexed { position, id -> dao.insertReference(EntryReferenceRow(row.id, id, position)) }
                 input.tagIds.forEachIndexed { position, id -> dao.insertEntryTag(EntryTagRow(row.id, id, position)) }
                 afterWrite()
                 // SQLite SUM detects overflow. Check both removed and newly affected accounts before commit.
@@ -569,7 +571,14 @@ class RoomLedger internal constructor(
                 val old = dao.entry(entryId) ?: missing()
                 if (old.token != expectedToken) conflict()
                 if (old.status != EntryStatus.TRASH.name) invalid(InvalidReason.STATE)
-                dao.refunds(entryId).forEach { dao.updateEntry(it.copy(purchaseId = null, token = token())) }
+                dao.referencing(entryId).forEach { referencing ->
+                    val remaining = dao.references(referencing.id).filterNot { it == entryId }
+                    dao.deleteReferences(referencing.id)
+                    remaining.forEachIndexed { position, related ->
+                        dao.insertReference(EntryReferenceRow(referencing.id, related, position))
+                    }
+                    dao.updateEntry(referencing.copy(token = token()))
+                }
                 dao.deleteEntry(entryId)
                 afterWrite()
             }
@@ -596,7 +605,7 @@ class RoomLedger internal constructor(
                 row.merchant,
                 row.note,
                 money,
-                row.purchaseId,
+                dao.references(row.id),
                 receiptLines,
                 tagIds,
             ),

@@ -16,7 +16,7 @@ import java.time.LocalTime
 internal fun Draft.row(): DraftRow {
     val json =
         JSONObject()
-            .put("version", 1)
+            .put("version", 2)
             .put("kind", input.kind.name)
             .put("date", input.date.toString())
             .put("time", input.time.toString())
@@ -26,7 +26,7 @@ internal fun Draft.row(): DraftRow {
             .put("received", input.receivedMinor?.toString())
             .put("merchant", input.merchant)
             .put("note", input.note)
-            .put("purchase", input.purchaseId)
+            .put("relatedEntryIds", JSONArray(input.relatedEntryIds))
             .put("amountText", amountText)
             .put("dateText", dateText)
             .put("timeText", timeText)
@@ -71,7 +71,9 @@ internal fun Draft.row(): DraftRow {
 
 internal fun DraftRow.model(): Draft {
     val json = JSONObject(payload)
-    check(json.getInt("version") == 1)
+    check(json.getInt("version") in 1..2)
+    val legacy = json.getInt("version") == 1
+    val legacyExpense = legacy && json.getString("kind") == "EXPENSE"
 
     fun optional(key: String): String? = if (json.has(key) && !json.isNull(key)) json.getString(key) else null
     val money =
@@ -102,24 +104,36 @@ internal fun DraftRow.model(): Draft {
         entryId,
         token,
         EntryInput(
-            EntryKind.valueOf(json.getString("kind")),
+            EntryKind.valueOf(if (json.getString("kind") == "REFUND") "EXPENSE" else json.getString("kind")),
             LocalDate.parse(json.getString("date")),
             LocalTime.parse(json.getString("time")),
             json.getString("accountId"),
-            optional("amount")?.toLong(),
+            optional("amount")?.toLong()?.let { if (legacyExpense) Math.negateExact(it) else it },
             optional("destination"),
             optional("received")?.toLong(),
             allocations,
             json.getString("merchant"),
             json.getString("note"),
             money,
-            optional("purchase"),
+            if (legacy) {
+                listOfNotNull(optional("purchase"))
+            } else {
+                json.optJSONArray("relatedEntryIds").let { refs ->
+                    if (refs == null) emptyList() else (0 until refs.length()).map { refs.getString(it) }
+                }
+            },
             receiptLines,
             tagIds,
         ),
         originalToken,
         incomplete,
-        optional("amountText"),
+        optional("amountText")?.let {
+            if (legacyExpense && it.isNotBlank()) {
+                if (it.startsWith("-")) it else "-" + it.removePrefix("+")
+            } else {
+                it
+            }
+        },
         optional("dateText"),
         optional("timeText"),
         optional("receivedText"),

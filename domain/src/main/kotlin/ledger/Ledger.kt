@@ -23,7 +23,7 @@ data class Money(
     val currency: BookCurrency,
 )
 
-enum class EntryKind { EXPENSE, INCOME, REFUND, TRANSFER, OPENING, ADJUSTMENT }
+enum class EntryKind { EXPENSE, INCOME, TRANSFER, OPENING, ADJUSTMENT }
 
 enum class EntryStatus { POSTED, TRASH }
 
@@ -104,7 +104,7 @@ data class EntryInput(
     val merchant: String = "",
     val note: String = "",
     val merchantAmount: Money? = null,
-    val purchaseId: String? = null,
+    val relatedEntryIds: List<String> = emptyList(),
     val receiptLines: List<ReceiptLine> = emptyList(),
     val tagIds: List<String> = emptyList(),
 )
@@ -134,7 +134,7 @@ enum class InvalidReason {
     TRANSFER,
     ALLOCATIONS,
     TEXT_TOO_LONG,
-    REFUND_LINK,
+    RELATED_ENTRY,
     STATE,
 }
 
@@ -171,7 +171,7 @@ fun validateEntry(
     if (input.date.year !in 1..9999) return invalid(InvalidReason.DATE)
     if (input.date > today) return invalid(InvalidReason.FUTURE_DATE)
     if (input.merchant.length > 500 || input.note.length > 10000) return invalid(InvalidReason.TEXT_TOO_LONG)
-    if (input.receiptLines.size > 1000 || input.receiptLines.any { it.description.isBlank() || it.description.length > 500 }) {
+    if (input.receiptLines.size > 1000 || input.receiptLines.any { it.description.length > 500 }) {
         return invalid(InvalidReason.TEXT_TOO_LONG)
     }
     if (input.tagIds.size > 100 || input.tagIds.distinct().size != input.tagIds.size || input.tagIds.any { !validId(it) }) {
@@ -180,11 +180,13 @@ fun validateEntry(
     val account = accounts[input.accountId]?.takeUnless { it.archived } ?: return invalid(InvalidReason.ACCOUNT)
     val amount = input.amountMinor ?: return invalid(InvalidReason.MISSING_AMOUNT)
     if (input.merchantAmount?.minor?.let { it <= 0 } == true) return invalid(InvalidReason.AMOUNT)
-    if (input.purchaseId != null && (input.kind != EntryKind.REFUND || !validId(input.purchaseId))) {
-        return invalid(InvalidReason.REFUND_LINK)
+    if (input.relatedEntryIds.size > 100 || input.relatedEntryIds.distinct().size != input.relatedEntryIds.size ||
+        input.relatedEntryIds.any { !validId(it) }
+    ) {
+        return invalid(InvalidReason.RELATED_ENTRY)
     }
-    val signed = input.kind in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)
-    if (!signed && amount <= 0) return invalid(InvalidReason.AMOUNT)
+    val balanceOnly = input.kind in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)
+    if (!balanceOnly && (amount == 0L || (input.kind == EntryKind.TRANSFER && amount < 0))) return invalid(InvalidReason.AMOUNT)
     if (input.kind != EntryKind.TRANSFER && (input.destinationAccountId != null || input.receivedMinor != null)) {
         return invalid(InvalidReason.TRANSFER)
     }
@@ -204,15 +206,15 @@ fun validateEntry(
                     listOf(Posting(account.id, Math.negateExact(amount)), Posting(destination.id, received))
                 }
 
-                EntryKind.EXPENSE -> {
-                    listOf(Posting(account.id, Math.negateExact(amount)))
+                EntryKind.EXPENSE, EntryKind.INCOME -> {
+                    listOf(Posting(account.id, amount))
                 }
 
                 else -> {
                     listOf(Posting(account.id, amount))
                 }
             }
-        if (signed || input.kind == EntryKind.TRANSFER) {
+        if (balanceOnly || input.kind == EntryKind.TRANSFER) {
             if (input.allocations.isNotEmpty() || input.receiptLines.isNotEmpty()) return invalid(InvalidReason.ALLOCATIONS)
         } else {
             if (input.allocations.isEmpty() || input.allocations.size > 1000 ||
@@ -237,7 +239,7 @@ fun validateEntry(
                 }
                 total = Math.addExact(total, allocation.amountMinor)
             }
-            if (total != amount) return invalid(InvalidReason.ALLOCATIONS)
+            if (total != Math.absExact(amount)) return invalid(InvalidReason.ALLOCATIONS)
         }
         if (input.receiptLines.isNotEmpty()) {
             if (input.receiptLines
@@ -250,7 +252,7 @@ fun validateEntry(
                 return invalid(InvalidReason.ALLOCATIONS)
             }
             val receiptTotal = input.receiptLines.fold(0L) { total, line -> Math.addExact(total, line.merchantMinor) }
-            if (receiptTotal != (input.merchantAmount?.minor ?: amount)) return invalid(InvalidReason.ALLOCATIONS)
+            if (receiptTotal != (input.merchantAmount?.minor ?: Math.absExact(amount))) return invalid(InvalidReason.ALLOCATIONS)
         }
         LedgerResult.Success(ValidatedEntry(input, postings, account.currency))
     } catch (_: ArithmeticException) {

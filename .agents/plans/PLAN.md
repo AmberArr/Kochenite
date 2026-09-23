@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 is in progress; milestones 2.0–2.6 are verified; reports and current-rate estimates (2.7) are next. Off-machine signing backup is still required before real bookkeeping use.
+Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 is in progress; milestones 2.0–2.6 and the authorized transaction UI/signed-entry update are verified. Reports and current-rate estimates (2.7) are next. Off-machine signing backup is still required before real bookkeeping use.
 
 ## Goal and Agreed Decisions
 
@@ -59,8 +59,8 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 
 - Support cash, bank, savings, credit cards, e-wallets, assets, loans, and receivables. Include account groups, opening balances, archival, reconciliation, and inclusion/exclusion from net worth.
 - Accounts are generic signed-balance containers; type is descriptive only. Each has one authoritative currency, permanently locked after its first posting even if purged. Archival preserves balances/history and net-worth inclusion. Lending and repayment are ordinary transfers to/from a receivable account.
-- Support income, expenses, transfers, refunds, and explicit balance adjustments.
-- Transactions include merchant/payee, date, account, categories, tags, notes, attachments, and cleared/reconciled status. Include copying, saved templates, search, filters, and bulk categorization.
+- Support signed income/expense, transfers, and explicit balance adjustments. A positive Expense records a credit/refund; Refund is not a separate transaction kind.
+- Transactions include merchant/payee, date, account, categories, tags, notes, attachments, and cleared/reconciled status. Include copying, saved templates, general related-transaction references, search, filters, and bulk categorization.
 - Transfers and credit-card repayments move balances without becoming income or expenses. Fees and interest are separate expenses.
 
 ### Currencies and Financial Correctness
@@ -71,7 +71,7 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 - Historical reports use authoritative amounts grouped by account currency, without historical display-currency conversion. Overview estimates current net worth and month-to-date income/spending/net flow only.
 - Current estimates use a replaceable HTTPS Frankfurter adapter, common-base rates cached for 24 hours after successful fetch, and manual pair overrides with consistent reciprocals. Keep fetch time separate from provider date, retain stale cache on failure, expose automatic/manual/stale status and omitted currencies, and provide explicit refresh. Send no financial records to the service.
 - Account postings determine balances. Category allocations determine spending. Receipt lines explain allocations; they are not additional transactions.
-- Refunds link to original purchases and reduce spending in the refund posting period. Balance adjustments do not silently appear as earned income or ordinary expenses.
+- Expense and Income use signed actual amounts: negative Expense spends, positive Expense offsets spending; positive Income earns, negative Income reverses income. Allocations are positive magnitudes. General contextual references allow multiple posted transactions of any kind, are preserved during editing and cleared for copies/templates. Existing references survive trash; purging a target detaches links and invalidates affected edit tokens. References do not affect financial values. Credits reduce spending in their own posting period. Balance adjustments do not silently appear as earned income or ordinary expenses.
 
 ### Receipt Subitems
 
@@ -180,7 +180,7 @@ results. Off-machine signing backup remains required before real use.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
-Status: in progress. See the [detailed milestones](phases/02-manual-bookkeeping.md),
+Status: in progress. Milestones 2.0–2.6 and the authorized transaction UI/signed-entry update are verified; milestone 2.7 is next. See the [detailed milestones](phases/02-manual-bookkeeping.md),
 [financial examples](../../docs/financial-rules.md) and [worklog](../worklogs/02-manual-bookkeeping.md).
 
 - Deliver milestones 2.0–2.9 in order: decisions, kernel/storage, setup/accounts/categories, basic entry/drafts/trash, transfers/incomplete/refunds, receipt lines/splits, search/tags/templates/bulk categories, reports/rates, plain SQLite backup/restore, release validation.

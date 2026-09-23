@@ -126,7 +126,7 @@ class BookSetupDeviceTest {
                     LocalDate.now(),
                     LocalTime.NOON,
                     "cash",
-                    1500,
+                    -1500,
                     allocations = listOf(Allocation("a", 500, parent.id), Allocation("b", 1000, child.id)),
                 )
             val draft = success(ledger.saveDraft(Draft("draft", "entry", "", input), null))
@@ -135,10 +135,10 @@ class BookSetupDeviceTest {
             assertEquals(LedgerResult.Invalid(InvalidReason.CATEGORY), ledger.categoryRepository.save(changedKind, child))
             val refundInput =
                 input.copy(
-                    kind = EntryKind.REFUND,
+                    kind = EntryKind.EXPENSE,
                     amountMinor = 200,
                     allocations = listOf(Allocation("refund", 200, child.id)),
-                    purchaseId = "entry",
+                    relatedEntryIds = listOf("entry"),
                 )
             val refundDraft = success(ledger.saveDraft(Draft("refund-draft", "refund-entry", "", refundInput), null))
             success(ledger.confirm(refundDraft.id, refundDraft.token))

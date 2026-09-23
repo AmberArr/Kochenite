@@ -176,6 +176,21 @@ internal data class EntryTagRow(
     val position: Int,
 )
 
+@Entity(
+    tableName = "entry_references",
+    primaryKeys = ["entryId", "relatedId"],
+    foreignKeys = [
+        ForeignKey(entity = EntryRow::class, parentColumns = ["id"], childColumns = ["entryId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = EntryRow::class, parentColumns = ["id"], childColumns = ["relatedId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index("relatedId")],
+)
+internal data class EntryReferenceRow(
+    val entryId: String,
+    val relatedId: String,
+    val position: Int,
+)
+
 @Entity(tableName = "templates")
 internal data class TemplateRow(
     @PrimaryKey val id: String,
@@ -212,6 +227,17 @@ internal data class CategoryTotalRow(
 
 @Dao
 internal interface LedgerDao {
+    @Query("SELECT relatedId FROM entry_references WHERE entryId = :id ORDER BY position")
+    suspend fun references(id: String): List<String>
+
+    @Query("SELECT e.* FROM entries e JOIN entry_references r ON e.id = r.entryId WHERE r.relatedId = :id")
+    suspend fun referencing(id: String): List<EntryRow>
+
+    @Insert suspend fun insertReference(row: EntryReferenceRow)
+
+    @Query("DELETE FROM entry_references WHERE entryId = :id")
+    suspend fun deleteReferences(id: String)
+
     @Query("SELECT * FROM tags ORDER BY name COLLATE NOCASE, id")
     suspend fun tags(): List<TagRow>
 
@@ -331,7 +357,7 @@ internal interface LedgerDao {
     suspend fun balance(accountId: String): Long
 
     @Query(
-        "SELECT a.currency, a.scale, SUM(CASE WHEN e.kind = 'INCOME' THEN c.amountMinor ELSE 0 END) AS incomeMinor, SUM(CASE WHEN e.kind = 'EXPENSE' THEN c.amountMinor ELSE 0 END) AS expenseMinor, SUM(CASE WHEN e.kind = 'REFUND' THEN c.amountMinor ELSE 0 END) AS refundMinor FROM allocations c JOIN entries e ON c.entryId = e.id JOIN accounts a ON a.id = e.accountId WHERE e.status = 'POSTED' AND e.date BETWEEN :start AND :end GROUP BY a.currency, a.scale",
+        "SELECT a.currency, a.scale, SUM(CASE WHEN e.kind = 'INCOME' THEN CASE WHEN e.amountMinor < 0 THEN -c.amountMinor ELSE c.amountMinor END ELSE 0 END) AS incomeMinor, SUM(CASE WHEN e.kind = 'EXPENSE' THEN CASE WHEN e.amountMinor > 0 THEN -c.amountMinor ELSE c.amountMinor END ELSE 0 END) AS expenseMinor, 0 AS refundMinor FROM allocations c JOIN entries e ON c.entryId = e.id JOIN accounts a ON a.id = e.accountId WHERE e.status = 'POSTED' AND e.date BETWEEN :start AND :end GROUP BY a.currency, a.scale",
     )
     suspend fun totals(
         start: String,
@@ -342,7 +368,7 @@ internal interface LedgerDao {
         """SELECT COALESCE(c.parentId, c.id) AS rootId,
         CASE WHEN e.kind = 'INCOME' THEN 'INCOME' ELSE 'EXPENSE' END AS kind,
         a.currency, a.scale,
-        SUM(CASE WHEN e.kind = 'REFUND' THEN -al.amountMinor ELSE al.amountMinor END) AS amountMinor
+        SUM(CASE WHEN (e.kind = 'EXPENSE' AND e.amountMinor > 0) OR (e.kind = 'INCOME' AND e.amountMinor < 0) THEN -al.amountMinor ELSE al.amountMinor END) AS amountMinor
         FROM allocations al JOIN entries e ON e.id = al.entryId
         JOIN accounts a ON a.id = e.accountId LEFT JOIN categories c ON c.id = al.categoryId
         WHERE e.status = 'POSTED' AND e.date BETWEEN :start AND :end
@@ -423,9 +449,9 @@ internal interface LedgerDao {
     entities = [
         AccountGroupRow::class, BookSettingsRow::class, AccountRow::class, CategoryRow::class,
         EntryRow::class, PostingRow::class, AllocationRow::class, ReceiptLineRow::class,
-        TagRow::class, EntryTagRow::class, TemplateRow::class, DraftRow::class,
+        TagRow::class, EntryTagRow::class, TemplateRow::class, DraftRow::class, EntryReferenceRow::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 internal abstract class LedgerDatabase : RoomDatabase() {
@@ -439,7 +465,7 @@ internal fun ledgerDatabase(
     Room
         .databaseBuilder(context, LedgerDatabase::class.java, name)
         .openHelperFactory(PreservingSQLiteFactory())
-        .addMigrations(ledgerMigration1To2, ledgerMigration2To3, ledgerMigration3To4, ledgerMigration4To5)
+        .addMigrations(ledgerMigration1To2, ledgerMigration2To3, ledgerMigration3To4, ledgerMigration4To5, ledgerMigration5To6)
         .build()
 
 internal val ledgerMigration1To2 =
@@ -484,5 +510,22 @@ internal val ledgerMigration4To5 =
             )
             db.execSQL("CREATE INDEX IF NOT EXISTS index_entry_tags_tagId ON entry_tags(tagId)")
             db.execSQL("CREATE TABLE IF NOT EXISTS templates (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL)")
+        }
+    }
+
+internal val ledgerMigration5To6 =
+    object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS entry_references (entryId TEXT NOT NULL, relatedId TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(entryId, relatedId), FOREIGN KEY(entryId) REFERENCES entries(id) ON DELETE CASCADE, FOREIGN KEY(relatedId) REFERENCES entries(id) ON DELETE CASCADE)",
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_entry_references_relatedId ON entry_references(relatedId)")
+            db.execSQL(
+                "INSERT INTO entry_references(entryId, relatedId, position) SELECT id, purchaseId, 0 FROM entries WHERE purchaseId IS NOT NULL",
+            )
+            db.execSQL("UPDATE entries SET amountMinor = -amountMinor WHERE kind = 'EXPENSE'")
+            db.execSQL("UPDATE entries SET kind = 'EXPENSE' WHERE kind = 'REFUND'")
+            db.execSQL("UPDATE entries SET purchaseId = NULL")
+            // Draft/template JSON v1 is upgraded losslessly by the version-aware codec when read.
         }
     }

@@ -71,8 +71,8 @@ verified commits and keep dated results only in the worklog.
 - Same-currency equal principal/cross-currency actual amounts; optional merchant context.
 - Unknown actual amounts save incomplete with affected-view markers/counts; unknown
   transfer side leaves both sides incomplete. Fees/interest are separate expenses.
-- Standalone/linked/partial refunds initialized from selected purchase allocations,
-  later receipt items; category defaults/context only, different receiving account allowed.
+- Expense credits (standalone or linked by general reference), initialized from
+  selected allocations; positive signs offset spending in their own period.
 - Exit: lending/repayment exclude spending; merchant amounts never affect authoritative
   totals; completion posts once; refunds reduce spending on their own recorded date.
 
@@ -156,6 +156,13 @@ verified commits and keep dated results only in the worklog.
 - 2.4: complete; [transfer/refund evidence](../../worklogs/02-manual-bookkeeping.md#milestone-24--september-23-2026).
 - 2.5: complete; [split/receipt evidence](../../worklogs/02-manual-bookkeeping.md#milestone-25--september-23-2026).
 - 2.6: complete; [search/template/bulk evidence](../../worklogs/02-manual-bookkeeping.md#milestone-26--september-23-2026). 2.7–2.9: pending.
+- Transaction UI/signed-entry update: complete; [verification evidence](../../worklogs/02-manual-bookkeeping.md#transaction-ui-implementation-verification--september-23-2026).
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
-- Next: implement 2.7 authoritative reports and replaceable current-rate estimates,
-  beginning with report drilldowns and rate-provider/cache contracts.
+- Next: begin 2.7 reports and current-rate estimates.
+
+## Transaction UI implementation
+
+- Status: complete; host verification, Room v6 migration/storage checks, financial rules and the 38-assertion physical-device suite pass. See the linked worklog entry.
+- Exit criteria met: signed Expense/Income behavior preserves postings and report meaning; related-reference edit/copy/template/trash/purge behavior is covered; proposal acceptance gaps are recorded in the worklog.
+- Acceptance gap: manual dark-theme, large-text and wide-layout visual review, plus a dedicated keyboard/Back/system-bar stress pass, remain for milestone 2.9. Current device evidence covers the compact default viewport, editor input, activity recreation and process-restart draft recovery.
+- Next: begin milestone 2.7 reports and current-rate estimates.
