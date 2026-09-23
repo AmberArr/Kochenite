@@ -215,6 +215,9 @@ data class Draft(
     val amountText: String? = null,
     val dateText: String? = null,
     val timeText: String? = null,
+    val receivedText: String? = null,
+    val merchantAmountText: String? = null,
+    val merchantCurrencyText: String? = null,
 )
 
 data class LedgerCursor(

@@ -264,6 +264,9 @@ internal interface LedgerDao {
     @Query("SELECT * FROM drafts ORDER BY rowid DESC LIMIT :limit")
     suspend fun drafts(limit: Int): List<DraftRow>
 
+    @Query("SELECT * FROM drafts WHERE incomplete = 1")
+    suspend fun incompleteDrafts(): List<DraftRow>
+
     @Query("DELETE FROM drafts WHERE id = :id")
     suspend fun deleteDraft(id: String)
 

@@ -50,6 +50,9 @@ data class BookState(
     val entries: List<SavedEntry> = emptyList(),
     val trashed: List<SavedEntry> = emptyList(),
     val drafts: List<Draft> = emptyList(),
+    val incompleteDrafts: List<Draft> = emptyList(),
+    val incompleteCount: Int = 0,
+    val affectedIncomplete: Map<String, Int> = emptyMap(),
     val totals: List<CurrencyTotals> = emptyList(),
     val error: Int? = null,
 )
@@ -116,6 +119,7 @@ internal class BookViewModel(
         val entries = book.page()
         val trashed = book.page(EntryStatus.TRASH)
         val drafts = book.drafts()
+        val incomplete = book.incompleteDrafts()
         val today = LocalDate.now()
         val totals = book.totals(today.withDayOfMonth(1), today)
         val failed =
@@ -127,6 +131,7 @@ internal class BookViewModel(
                 entries,
                 trashed,
                 drafts,
+                incomplete,
                 totals,
             ).firstOrNull { it !is LedgerResult.Success }
         if (failed != null) {
@@ -144,6 +149,14 @@ internal class BookViewModel(
                     entries = (entries as LedgerResult.Success).value.entries,
                     trashed = (trashed as LedgerResult.Success).value.entries,
                     drafts = (drafts as LedgerResult.Success).value,
+                    incompleteCount = (incomplete as LedgerResult.Success).value.size,
+                    incompleteDrafts = incomplete.value,
+                    affectedIncomplete =
+                        incomplete
+                            .value
+                            .flatMap { listOfNotNull(it.input.accountId, it.input.destinationAccountId).distinct() }
+                            .groupingBy { it }
+                            .eachCount(),
                     totals = (totals as LedgerResult.Success).value,
                 )
         }
@@ -230,6 +243,7 @@ internal class BookViewModel(
                     existing
                 }
             if (result is LedgerResult.Success) {
+                if (mutableEditor.value != null) return@launch
                 persistedDraft = result.value
                 mutableEditor.value = EntryEditorState(result.value)
                 reload()
@@ -256,6 +270,59 @@ internal class BookViewModel(
         }
     }
 
+    fun startLinkedRefund(
+        purchase: SavedEntry,
+        allocationId: String,
+        navigate: (String) -> Unit,
+    ) {
+        val allocation = purchase.input.allocations.find { it.id == allocationId } ?: return
+        val account =
+            mutable.value.accounts
+                .find { it.account.id == purchase.input.accountId }
+                ?.account ?: return
+        viewModelScope.launch {
+            val input =
+                EntryInput(
+                    EntryKind.REFUND,
+                    LocalDate.now(),
+                    LocalTime.now().withNano(0),
+                    account.id,
+                    allocation.amountMinor,
+                    allocations = listOf(Allocation(UUID.randomUUID().toString(), allocation.amountMinor, allocation.categoryId)),
+                    merchant = purchase.input.merchant,
+                    purchaseId = purchase.id,
+                )
+            val draft =
+                Draft(
+                    UUID.randomUUID().toString(),
+                    UUID.randomUUID().toString(),
+                    "",
+                    input,
+                    amountText = account.currency.formatMinor(allocation.amountMinor),
+                )
+            val result = ledger?.saveDraft(draft, null) ?: return@launch
+            if (result is LedgerResult.Success) {
+                persistedDraft = result.value
+                mutableEditor.value = EntryEditorState(result.value)
+                reload()
+                navigate(result.value.id)
+            } else {
+                mutable.value = mutable.value.copy(error = failure(result))
+            }
+        }
+    }
+
+    fun saveIncompleteEditor(onSaved: () -> Unit) {
+        val current = mutableEditor.value?.draft ?: return
+        val unknown = current.input.amountMinor == null || (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
+        if (!unknown) {
+            mutableEditor.value = mutableEditor.value?.copy(error = R.string.incomplete_requires_unknown)
+            return
+        }
+        updateEditor { it.copy(incomplete = true) }
+        closeEditor(onSaved)
+    }
+
     fun openDetail(id: String) {
         mutableDetail.value = null
         viewModelScope.launch {
@@ -277,7 +344,10 @@ internal class BookViewModel(
 
     fun updateEditor(change: (Draft) -> Draft) {
         val old = mutableEditor.value ?: return
-        mutableEditor.value = old.copy(draft = change(old.draft), saved = false, error = null)
+        val changed = change(old.draft)
+        val complete =
+            changed.input.amountMinor != null && (changed.input.kind != EntryKind.TRANSFER || changed.input.receivedMinor != null)
+        mutableEditor.value = old.copy(draft = if (complete) changed.copy(incomplete = false) else changed, saved = false, error = null)
         editorSaveJob?.cancel()
         editorSaveJob =
             viewModelScope.launch {
@@ -345,7 +415,9 @@ internal class BookViewModel(
             val current = persistedDraft ?: return@launch
             val badDate = current.dateText?.let { runCatching { LocalDate.parse(it) }.isFailure } ?: false
             val badTime = current.timeText?.let { runCatching { LocalTime.parse(it) }.isFailure } ?: false
-            if (badDate || badTime) {
+            val merchantContext = !current.merchantAmountText.isNullOrBlank() || !current.merchantCurrencyText.isNullOrBlank()
+            val badMerchantContext = merchantContext && current.input.merchantAmount == null
+            if (badDate || badTime || badMerchantContext) {
                 mutableEditor.value = mutableEditor.value?.copy(error = R.string.correct_fields)
                 return@launch
             }
@@ -353,7 +425,7 @@ internal class BookViewModel(
             if (result is LedgerResult.Success) {
                 mutableEditor.value = null
                 persistedDraft = null
-                mutableDetail.value = result.value
+                if (mutableDetail.value?.id == result.value.id) mutableDetail.value = result.value
                 reload()
                 completed.send(Unit)
             } else {

@@ -118,6 +118,70 @@ class FinancialStorageDeviceTest {
             assertEquals(LedgerResult.Invalid(InvalidReason.STATE), ledger.drafts(0))
         }
 
+    @Test fun transferAndMerchantEditorTextCannotInventOrHideActualAmounts() =
+        runBlocking {
+            var ledger = open()
+            seed(ledger)
+            val input =
+                expense(1000).copy(
+                    kind = EntryKind.TRANSFER,
+                    destinationAccountId = "yen",
+                    receivedMinor = 1500,
+                    allocations = emptyList(),
+                    merchantAmount = Money(1550, BookCurrency("JPY", 0)),
+                )
+            val raw =
+                Draft(
+                    UUID.randomUUID().toString(),
+                    UUID.randomUUID().toString(),
+                    "",
+                    input,
+                    amountText = "10.00",
+                    receivedText = "1500",
+                    merchantAmountText = "1550",
+                    merchantCurrencyText = "JPY",
+                )
+            var saved = success(ledger.saveDraft(raw, null))
+            ledger = open()
+            assertEquals(saved, success(ledger.draft(saved.id)))
+            success(ledger.confirm(saved.id, saved.token))
+            assertEquals(-1000L, success(ledger.balance("cash")))
+            assertEquals(1500L, success(ledger.balance("yen")))
+            assertTrue(success(ledger.totals(today, today)).isEmpty())
+
+            saved =
+                success(
+                    ledger.saveDraft(
+                        raw.copy(id = UUID.randomUUID().toString(), entryId = UUID.randomUUID().toString(), amountText = "11.00"),
+                        null,
+                    ),
+                )
+            assertEquals(LedgerResult.Invalid(InvalidReason.AMOUNT), ledger.confirm(saved.id, saved.token))
+            assertEquals(saved, success(ledger.draft(saved.id)))
+            assertEquals(-1000L, success(ledger.balance("cash")))
+            val badDate = success(ledger.saveDraft(saved.copy(amountText = "10.00", dateText = "2026-09-"), saved.token))
+            assertEquals(LedgerResult.Invalid(InvalidReason.DATE), ledger.confirm(badDate.id, badDate.token))
+            assertEquals(badDate, success(ledger.draft(badDate.id)))
+        }
+
+    @Test fun linkedPartialAndStandaloneRefundsUseTheirOwnPeriodAndReceivingAccount() =
+        runBlocking {
+            val ledger = open()
+            seed(ledger)
+            val purchaseDate = today.withDayOfMonth(1)
+            val purchase = post(ledger, expense(1000).copy(date = purchaseDate))
+            val first = post(ledger, expense(300).copy(kind = EntryKind.REFUND, accountId = "card", purchaseId = purchase.id))
+            val second = post(ledger, expense(100).copy(kind = EntryKind.REFUND, accountId = "card", purchaseId = purchase.id))
+            val standalone = post(ledger, expense(200).copy(kind = EntryKind.REFUND))
+            assertEquals(purchase.id, first.input.purchaseId)
+            assertEquals(purchase.id, second.input.purchaseId)
+            assertEquals(null, standalone.input.purchaseId)
+            assertEquals(-800L, success(ledger.balance("cash")))
+            assertEquals(400L, success(ledger.balance("card")))
+            assertEquals(1000L, success(ledger.totals(purchaseDate, purchaseDate)).single().spendingMinor)
+            assertEquals(-600L, success(ledger.totals(today, today)).single().spendingMinor)
+        }
+
     @Test fun exactReopenDraftConsumptionAndReports() =
         runBlocking {
             var ledger = open()
@@ -238,6 +302,10 @@ class FinancialStorageDeviceTest {
         runBlocking {
             val ledger = open()
             seed(ledger)
+            assertEquals(
+                LedgerResult.Invalid(InvalidReason.STATE),
+                ledger.saveDraft(Draft("invalid-incomplete", "invalid-entry", "", expense(), incomplete = true), null),
+            )
             val incomplete =
                 draft(
                     ledger,
@@ -250,6 +318,7 @@ class FinancialStorageDeviceTest {
                     ),
                     true,
                 )
+            assertEquals(listOf(incomplete), success(ledger.incompleteDrafts()))
             assertEquals(LedgerResult.Invalid(InvalidReason.MISSING_AMOUNT), ledger.confirm(incomplete.id, incomplete.token))
             assertEquals(0L, success(ledger.balance("cash")))
             assertEquals(0L, success(ledger.balance("yen")))
@@ -257,6 +326,7 @@ class FinancialStorageDeviceTest {
             val completeInput = incomplete.copy(input = incomplete.input.copy(receivedMinor = 1800), incomplete = false)
             val completed = success(ledger.saveDraft(completeInput, incomplete.token))
             success(ledger.confirm(completed.id, completed.token))
+            assertTrue(success(ledger.incompleteDrafts()).isEmpty())
             assertEquals(-1234L, success(ledger.balance("cash")))
             assertEquals(1800L, success(ledger.balance("yen")))
             assertTrue(success(ledger.totals(today, today)).isEmpty())

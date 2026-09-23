@@ -115,3 +115,34 @@ wait for the editable node fixed this; the full 23-assertion runner passed. Exis
 The editor surfaces save failures while retaining current input. Current list pages
 are bounded; search and richer filtering belong to 2.6. Incomplete creation,
 transfers and refunds belong to 2.4. Next action: milestone 2.4.
+
+## Milestone 2.4 — September 23, 2026
+
+Extended the entry editor for actual sent/received transfer amounts, optional
+merchant-currency context, explicit Save incomplete, and linked or standalone
+refunds. Linked refunds start from a selected purchase allocation with editable
+amount, category and receiving account. Incomplete transfers have no postings or
+authoritative allocations; after both amounts are supplied the saved entry becomes
+an ordinary draft and posts only on explicit confirmation. Exact incomplete counts
+and affected-account markers appear in Overview, Accounts and Reports. The posting
+service revalidates raw editor text in the transaction, preventing malformed or
+mismatched transfer/merchant values from being silently dropped. No tax, discount
+or quantity model was introduced.
+
+Verification: `./gradlew spotlessApply verify :app:assembleDebug
+:app:assembleDebugAndroidTest :persistence:assembleDebugAndroidTest` passed.
+The explicit-serial physical-phone runner passed 27 assertions: 15 financial
+storage, five setup, five UI and two process-restart. New UI journeys cover an
+incomplete USD→JPY transfer with actual received amount, a merchant-currency
+context value that never changes reports, a linked partial refund to a different
+account and a standalone refund. Storage tests cover same-currency equality,
+cross-currency actuals, malformed raw fields, multiple partial refunds and refund
+periods. Sanitized evidence: ignored `.local/financial-evidence/instrumentation.json`.
+Only synthetic debug data were used; release/user financial data and other apps
+were untouched.
+
+During verification, a long account dropdown caused a UI test to tap a visible
+option while its intended target was offscreen. Tagged choices plus explicit
+scrolling made the test select and verify the requested account. The complete
+27-assertion runner passed afterward. Incomplete draft listing remains a simple
+scrolling view; indexed search/pagination comes in 2.6. Next action: milestone 2.5.

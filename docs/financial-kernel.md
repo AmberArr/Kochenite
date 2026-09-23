@@ -58,7 +58,18 @@ pending persistence. Invalid posting leaves the draft available to correct.
 Transaction details can start a durable edit draft; posted originals remain effective
 until confirmation succeeds. Trash, restore and confirmed permanent deletion use the
 same atomic posting service. Transactions lists posted, draft, incomplete and trash
-states; completion of incomplete entries is part of milestone 2.4.
+states.
+
+The editor now accepts same- and cross-currency transfers as actual sent and
+received account amounts. Optional merchant amount/currency remain context and
+never supply postings. Unknown actual amounts can be explicitly saved as incomplete
+without changing balances or spending; completing both transfer sides removes the
+incomplete marker before posting. Overview, Accounts and Reports display exact
+incomplete counts and affected accounts. Refunds can be standalone or linked from
+a selected purchase allocation; links provide defaults without changing the
+purchase or fixing the receiving account. Partial refunds reduce spending on their
+own date. Raw transfer and merchant text is checked again inside the atomic posting
+service, so malformed or mismatched editor values cannot be ignored at confirmation.
 
 ## Verification
 
@@ -77,8 +88,8 @@ node scripts/run-financial-tests.mjs "$ANDROID_SERIAL" --ui
 Set `ANDROID_SERIAL` to the explicitly selected currently connected reference
 phone and substitute the discovered Android user if it is not 0. Never create an
 emulator or clear app data. The runner verifies the isolated debug storage test
-package and instrumentation target, bounds ADB execution, and requires thirteen
-kernel, five setup/storage, three UI and two process-restart assertions to finish.
+package and instrumentation target, bounds ADB execution, and requires fifteen
+kernel, five setup/storage, five UI and two process-restart assertions to finish.
 Storage tests create/delete random synthetic databases. UI tests retain synthetic
 records in the separate debug application. The process test force-stops only that
 debug identity and verifies an acknowledged draft on a fresh process. The runner
@@ -93,5 +104,6 @@ cancellation, edit/trash/restore/purge/refund detachment, persistent currency lo
 bounded pages, migration preservation/rollback and non-destructive corrupt opens.
 These tests also cover signed setup, reference-safe category/account edits,
 navigation/form recreation, amount-first entry, entry edit/trash/restore, raw draft
-roundtrips and a forced debug-process restart. Financial release upgrades, receipt
-lines, rates and backup/restore remain later gates.
+roundtrips, incomplete cross-currency completion, merchant context, linked and
+standalone refunds, and a forced debug-process restart. Financial release upgrades,
+receipt lines, rates and backup/restore remain later gates.

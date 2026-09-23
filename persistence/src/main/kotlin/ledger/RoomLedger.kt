@@ -124,6 +124,8 @@ class RoomLedger internal constructor(
             dao.drafts(limit).map { it.model() }
         }
 
+    suspend fun incompleteDrafts(): LedgerResult<List<Draft>> = storageResult { dao.incompleteDrafts().map { it.model() } }
+
     override suspend fun discardDraft(
         draftId: String,
         expectedToken: String,
@@ -192,9 +194,15 @@ class RoomLedger internal constructor(
         storageResult {
             db.withTransaction {
                 if (!validId(draft.id) || !validId(draft.entryId)) invalid(InvalidReason.IDENTITY)
+                if (draft.incomplete && draft.input.amountMinor != null &&
+                    (draft.input.kind != EntryKind.TRANSFER || draft.input.receivedMinor != null)
+                ) {
+                    invalid(InvalidReason.STATE)
+                }
                 if (draft.input.merchant.length > 500 || draft.input.note.length > 10000 || draft.input.allocations.size > 1000 ||
                     (draft.amountText?.length ?: 0) > 100 || (draft.dateText?.length ?: 0) > 40 ||
-                    (draft.timeText?.length ?: 0) > 40
+                    (draft.timeText?.length ?: 0) > 40 || (draft.receivedText?.length ?: 0) > 100 ||
+                    (draft.merchantAmountText?.length ?: 0) > 100 || (draft.merchantCurrencyText?.length ?: 0) > 10
                 ) {
                     invalid(InvalidReason.TEXT_TOO_LONG)
                 }
@@ -271,6 +279,32 @@ class RoomLedger internal constructor(
                     original.status != EntryStatus.POSTED.name
                 ) {
                     conflict()
+                }
+                draft.dateText?.let { if (runCatching { LocalDate.parse(it) }.getOrNull() != draft.input.date) invalid(InvalidReason.DATE) }
+                draft.timeText?.let { if (runCatching { LocalTime.parse(it) }.getOrNull() != draft.input.time) invalid(InvalidReason.DATE) }
+                draft.amountText?.let { text ->
+                    val account = dao.accounts().find { it.id == draft.input.accountId } ?: invalid(InvalidReason.ACCOUNT)
+                    if (runCatching { account.model().currency.parseMinor(text) }.getOrNull() !=
+                        draft.input.amountMinor
+                    ) {
+                        invalid(InvalidReason.AMOUNT)
+                    }
+                }
+                draft.receivedText?.let { text ->
+                    val account = dao.accounts().find { it.id == draft.input.destinationAccountId } ?: invalid(InvalidReason.ACCOUNT)
+                    if (runCatching { account.model().currency.parseMinor(text) }.getOrNull() !=
+                        draft.input.receivedMinor
+                    ) {
+                        invalid(InvalidReason.AMOUNT)
+                    }
+                }
+                if (!draft.merchantAmountText.isNullOrBlank() || !draft.merchantCurrencyText.isNullOrBlank()) {
+                    val merchant = draft.input.merchantAmount ?: invalid(InvalidReason.AMOUNT)
+                    if (draft.merchantCurrencyText?.trim()?.uppercase() != merchant.currency.code ||
+                        runCatching { merchant.currency.parseMinor(draft.merchantAmountText.orEmpty()) }.getOrNull() != merchant.minor
+                    ) {
+                        invalid(InvalidReason.AMOUNT)
+                    }
                 }
                 val valid = validate(draft.input)
                 draft.input.purchaseId?.let {

@@ -79,6 +79,7 @@ import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.EntryStatus
+import moe.frost.kochenite.domain.ledger.Money
 import moe.frost.kochenite.domain.ledger.SavedEntry
 import java.time.LocalDate
 import java.time.LocalTime
@@ -167,12 +168,17 @@ private fun currency(code: String): BookCurrency? =
     change: (String?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val labelText = stringResource(label)
     Column {
-        Text(stringResource(label), style = MaterialTheme.typography.labelLarge)
-        TextButton(onClick = { expanded = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text(selected) }
+        Text(labelText, style = MaterialTheme.typography.labelLarge)
+        TextButton(onClick = { expanded = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("choice-$labelText")) { Text(selected) }
         DropdownMenu(expanded, { expanded = false }) {
             choices.forEach { (id, title) ->
-                DropdownMenuItem(text = { Text(title) }, onClick = {
+                DropdownMenuItem(text = {
+                    Text(
+                        title,
+                    )
+                }, modifier = Modifier.testTag("choice-$labelText-option-${id ?: "none"}"), onClick = {
                     change(id)
                     expanded = false
                 })
@@ -362,12 +368,30 @@ internal fun BookScreen(
                     composable<EntryDraftRoute> {
                         val id = it.toRoute<EntryDraftRoute>().id
                         LaunchedEffect(id) { model.openDraft(id) }
-                        EntryEditorForm(id, state, editor, model) { model.discardEditor { nav.popBackStack() } }
+                        EntryEditorForm(
+                            id,
+                            state,
+                            editor,
+                            model,
+                            { model.discardEditor { nav.popBackStack() } },
+                            { model.saveIncompleteEditor { nav.popBackStack() } },
+                        )
                     }
                     composable<EntryDetailRoute> {
                         val id = it.toRoute<EntryDetailRoute>().id
                         LaunchedEffect(id) { model.openDetail(id) }
-                        EntryDetailForm(id, detail, state, model) { draftId -> nav.navigate(EntryDraftRoute(draftId)) }
+                        EntryDetailForm(
+                            id,
+                            detail,
+                            state,
+                            model,
+                            { draftId -> nav.navigate(EntryDraftRoute(draftId)) },
+                            { allocationId ->
+                                detail?.let { purchase ->
+                                    model.startLinkedRefund(purchase, allocationId) { draftId -> nav.navigate(EntryDraftRoute(draftId)) }
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -540,6 +564,8 @@ internal fun BookScreen(
     Form(R.string.overview, state) {
         Text(stringResource(R.string.net_worth), style = MaterialTheme.typography.titleLarge)
         Text(stringResource(R.string.currency_totals_hint))
+        val incompleteCount = state.incompleteCount
+        if (incompleteCount > 0) Text(stringResource(R.string.incomplete_count, incompleteCount))
         state.accounts.filter { it.account.includeInNetWorth }.groupBy { it.account.currency }.forEach { (currency, balances) ->
             val total = runCatching { balances.fold(0L) { total, row -> Math.addExact(total, row.balanceMinor) } }.getOrNull()
             Text(
@@ -559,6 +585,8 @@ internal fun BookScreen(
             Text(
                 "${it.account.name}  ${it.account.currency.code} ${it.account.currency.formatMinor(it.balanceMinor)}",
             )
+            val affected = state.affectedIncomplete[it.account.id] ?: 0
+            if (affected > 0) Text(stringResource(R.string.incomplete_account_count, affected), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -585,6 +613,12 @@ internal fun BookScreen(
             ) {
                 Text(row.account.name, style = MaterialTheme.typography.titleMedium)
                 Text("${row.account.currency.code} ${row.account.currency.formatMinor(row.balanceMinor)}")
+                val affected = state.affectedIncomplete[row.account.id] ?: 0
+                if (affected >
+                    0
+                ) {
+                    Text(stringResource(R.string.incomplete_account_count, affected), style = MaterialTheme.typography.bodySmall)
+                }
                 state.groups.find { it.id == row.account.groupId }?.let { Text(it.name) }
                 if (row.account.archived) Text(stringResource(R.string.archived))
             }
@@ -612,7 +646,8 @@ internal fun BookScreen(
             }
         }
         if (filter == "draft" || filter == "incomplete") {
-            state.drafts.filter { it.incomplete == (filter == "incomplete") }.forEach { draft ->
+            val drafts = if (filter == "incomplete") state.incompleteDrafts else state.drafts.filter { !it.incomplete }
+            drafts.forEach { draft ->
                 TextButton(onClick = { openDraft(draft.id) }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("${draft.input.date} • ${draft.input.merchant.ifBlank { draft.input.kind.name }}")
                 }
@@ -642,6 +677,7 @@ internal fun BookScreen(
     state: BookState,
     model: BookViewModel,
     edit: (String) -> Unit,
+    refundAllocation: (String) -> Unit,
 ) {
     var confirmPurge by rememberSaveable(id) { mutableStateOf(false) }
     if (entry?.id != id) {
@@ -657,16 +693,25 @@ internal fun BookScreen(
                 entry.input.amountMinor ?: 0,
             ).orEmpty()}",
         )
+        entry.input.merchantAmount?.let {
+            Text("${stringResource(R.string.merchant_amount)}: ${it.currency.code} ${it.currency.formatMinor(it.minor)}")
+        }
+        entry.input.purchaseId?.let { Text(stringResource(R.string.linked_refund)) }
         entry.input.allocations.forEach { allocation ->
             Text(
                 "${state.categories.find { it.id == allocation.categoryId }?.name ?: stringResource(
                     R.string.category,
                 )} · ${account?.currency?.formatMinor(allocation.amountMinor).orEmpty()}",
             )
+            if (entry.status == EntryStatus.POSTED && entry.input.kind == EntryKind.EXPENSE) {
+                TextButton(onClick = { refundAllocation(allocation.id) }) { Text(stringResource(R.string.refund_allocation)) }
+            }
         }
         if (entry.input.note.isNotBlank()) Text(entry.input.note)
         if (entry.status == EntryStatus.POSTED) {
-            TextButton(onClick = { model.startEdit(entry.id, edit) }) { Text(stringResource(R.string.edit_transaction)) }
+            if (entry.input.kind !in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)) {
+                TextButton(onClick = { model.startEdit(entry.id, edit) }) { Text(stringResource(R.string.edit_transaction)) }
+            }
             TextButton(onClick = { model.trashEntry(entry) }) { Text(stringResource(R.string.move_to_trash)) }
         } else {
             TextButton(onClick = { model.restoreEntry(entry) }) { Text(stringResource(R.string.restore)) }
@@ -687,6 +732,7 @@ internal fun BookScreen(
     editor: EntryEditorState?,
     model: BookViewModel,
     discard: () -> Unit,
+    saveIncomplete: () -> Unit,
 ) {
     val current = editor?.draft?.takeIf { it.id == id }
     if (current == null) {
@@ -714,16 +760,47 @@ internal fun BookScreen(
         val minor = runCatching { money?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
         val first = draft.input.allocations.firstOrNull()
         val allocations =
-            if (minor ==
-                null
-            ) {
+            if (draft.input.kind == EntryKind.TRANSFER) {
                 emptyList()
             } else {
-                listOf(Allocation(first?.id ?: UUID.randomUUID().toString(), minor, first?.categoryId))
+                if (minor ==
+                    null
+                ) {
+                    emptyList()
+                } else {
+                    listOf(Allocation(first?.id ?: UUID.randomUUID().toString(), minor, first?.categoryId))
+                }
             }
         return draft.copy(
             amountText = text,
-            input = draft.input.copy(accountId = accountId, amountMinor = minor, allocations = allocations),
+            receivedText =
+                if (draft.input.kind == EntryKind.TRANSFER &&
+                    state.accounts
+                        .find { it.account.id == draft.input.destinationAccountId }
+                        ?.account
+                        ?.currency == money
+                ) {
+                    text
+                } else {
+                    draft.receivedText
+                },
+            input =
+                draft.input.copy(
+                    accountId = accountId,
+                    amountMinor = minor,
+                    allocations = allocations,
+                    receivedMinor =
+                        if (draft.input.kind == EntryKind.TRANSFER &&
+                            state.accounts
+                                .find { it.account.id == draft.input.destinationAccountId }
+                                ?.account
+                                ?.currency == money
+                        ) {
+                            minor
+                        } else {
+                            draft.input.receivedMinor
+                        },
+                ),
         )
     }
 
@@ -752,12 +829,48 @@ internal fun BookScreen(
         }
         Choice(
             R.string.transaction_kind,
-            stringResource(if (current.input.kind == EntryKind.EXPENSE) R.string.expense else R.string.income),
-            listOf(EntryKind.EXPENSE.name to stringResource(R.string.expense), EntryKind.INCOME.name to stringResource(R.string.income)),
+            stringResource(
+                when (current.input.kind) {
+                    EntryKind.INCOME -> R.string.income
+                    EntryKind.REFUND -> R.string.refund
+                    EntryKind.TRANSFER -> R.string.transfer
+                    else -> R.string.expense
+                },
+            ),
+            listOf(
+                EntryKind.EXPENSE.name to stringResource(R.string.expense),
+                EntryKind.INCOME.name to stringResource(R.string.income),
+                EntryKind.REFUND.name to stringResource(R.string.refund),
+                EntryKind.TRANSFER.name to stringResource(R.string.transfer),
+            ),
         ) { selected ->
             val kind = EntryKind.valueOf(selected ?: EntryKind.EXPENSE.name)
             model.updateEditor { draft ->
-                draft.copy(input = draft.input.copy(kind = kind, allocations = draft.input.allocations.map { it.copy(categoryId = null) }))
+                val minor = draft.input.amountMinor
+                val allocations =
+                    if (kind == EntryKind.TRANSFER || minor == null) {
+                        emptyList()
+                    } else {
+                        listOf(
+                            Allocation(
+                                draft.input.allocations
+                                    .firstOrNull()
+                                    ?.id ?: UUID.randomUUID().toString(),
+                                minor,
+                            ),
+                        )
+                    }
+                draft.copy(
+                    receivedText = if (kind == EntryKind.TRANSFER) draft.receivedText else null,
+                    input =
+                        draft.input.copy(
+                            kind = kind,
+                            destinationAccountId = if (kind == EntryKind.TRANSFER) draft.input.destinationAccountId else null,
+                            receivedMinor = if (kind == EntryKind.TRANSFER) draft.input.receivedMinor else null,
+                            purchaseId = if (kind == EntryKind.REFUND) draft.input.purchaseId else null,
+                            allocations = allocations,
+                        ),
+                )
             }
         }
         Field(R.string.amount, amountText, { text -> model.updateEditor { changeAmount(it, text) } }, number = true)
@@ -766,11 +879,62 @@ internal fun BookScreen(
             account?.name ?: stringResource(R.string.select_account),
             state.accounts.filter { !it.account.archived }.map { it.account.id to "${it.account.name} · ${it.account.currency.code}" },
         ) { selected -> if (selected != null) model.updateEditor { changeAmount(it, amountText, selected) } }
+        if (current.input.kind == EntryKind.TRANSFER) {
+            val destination = state.accounts.find { it.account.id == current.input.destinationAccountId }?.account
+            val receivedText =
+                current.receivedText ?: destination?.currency?.let { current.input.receivedMinor?.let(it::formatMinor) }.orEmpty()
+            Choice(
+                R.string.destination_account,
+                destination?.name ?: stringResource(R.string.select_account),
+                state.accounts
+                    .filter { !it.account.archived && it.account.id != current.input.accountId }
+                    .map { it.account.id to "${it.account.name} · ${it.account.currency.code}" },
+            ) { selected ->
+                model.updateEditor { draft ->
+                    val chosen = state.accounts.find { it.account.id == selected }?.account
+                    val text = if (chosen?.currency == account?.currency) amountText else draft.receivedText.orEmpty()
+                    val minor = runCatching { chosen?.currency?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
+                    draft.copy(receivedText = text, input = draft.input.copy(destinationAccountId = selected, receivedMinor = minor))
+                }
+            }
+            Field(R.string.received_amount, receivedText, { text ->
+                model.updateEditor { draft ->
+                    val minor = runCatching { destination?.currency?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
+                    draft.copy(receivedText = text, input = draft.input.copy(receivedMinor = minor))
+                }
+            }, number = true)
+        }
         Field(
             R.string.merchant_payee,
             current.input.merchant,
             { text -> model.updateEditor { it.copy(input = it.input.copy(merchant = text)) } },
         )
+        val merchantCodeText =
+            current.merchantCurrencyText ?: current.input.merchantAmount
+                ?.currency
+                ?.code
+                .orEmpty()
+        val merchantAmountText =
+            current.merchantAmountText ?: current.input.merchantAmount
+                ?.let { it.currency.formatMinor(it.minor) }
+                .orEmpty()
+
+        fun changeMerchant(
+            draft: Draft,
+            text: String,
+            code: String,
+        ): Draft {
+            val merchantCurrency = currency(code)
+            val minor = runCatching { merchantCurrency?.parseMinor(text) }.getOrNull()?.takeIf { it > 0 }
+            val money = if (merchantCurrency != null && minor != null) Money(minor, merchantCurrency) else null
+            return draft.copy(merchantAmountText = text, merchantCurrencyText = code, input = draft.input.copy(merchantAmount = money))
+        }
+        Field(R.string.merchant_amount, merchantAmountText, { text ->
+            model.updateEditor {
+                changeMerchant(it, text, merchantCodeText)
+            }
+        }, number = true)
+        Field(R.string.merchant_currency, merchantCodeText, { code -> model.updateEditor { changeMerchant(it, merchantAmountText, code) } })
         Field(R.string.transaction_date, dateText, { text ->
             model.updateEditor { draft ->
                 val parsed = runCatching { LocalDate.parse(text) }.getOrNull()
@@ -783,42 +947,32 @@ internal fun BookScreen(
                 draft.copy(timeText = text, input = draft.input.copy(time = parsed ?: draft.input.time))
             }
         })
-        val categories = state.categories.filter { !it.archived && it.kind.name == current.input.kind.name }
-        val categoryId =
-            current.input.allocations
-                .firstOrNull()
-                ?.categoryId
-        Choice(
-            R.string.category,
-            categories.find { it.id == categoryId }?.name
-                ?: stringResource(
-                    if (current.input.kind ==
-                        EntryKind.EXPENSE
-                    ) {
-                        R.string.uncategorized_expense
-                    } else {
-                        R.string.uncategorized_income
-                    },
-                ),
-            listOf(
-                null to
-                    stringResource(
-                        if (current.input.kind ==
-                            EntryKind.EXPENSE
-                        ) {
-                            R.string.uncategorized_expense
-                        } else {
-                            R.string.uncategorized_income
-                        },
-                    ),
-            ) +
-                categories.map { it.id to it.name },
-        ) { selected ->
-            model.updateEditor { draft ->
-                draft.copy(input = draft.input.copy(allocations = draft.input.allocations.map { it.copy(categoryId = selected) }))
+        if (current.input.kind != EntryKind.TRANSFER) {
+            val categoryKind = if (current.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+            val uncategorized = if (categoryKind == CategoryKind.INCOME) R.string.uncategorized_income else R.string.uncategorized_expense
+            val categories = state.categories.filter { !it.archived && it.kind == categoryKind }
+            val categoryId =
+                current.input.allocations
+                    .firstOrNull()
+                    ?.categoryId
+            Choice(
+                R.string.category,
+                categories.find { it.id == categoryId }?.name ?: stringResource(uncategorized),
+                listOf(null to stringResource(uncategorized)) + categories.map { it.id to it.name },
+            ) { selected ->
+                model.updateEditor { draft ->
+                    draft.copy(input = draft.input.copy(allocations = draft.input.allocations.map { it.copy(categoryId = selected) }))
+                }
             }
         }
         Field(R.string.notes, current.input.note, { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } })
+        val unknown = current.input.amountMinor == null || (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
+        if (unknown) {
+            TextButton(
+                onClick = saveIncomplete,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text(stringResource(R.string.save_incomplete)) }
+        }
         Button(onClick = model::confirmEditor, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.post)) }
         TextButton(onClick = discard, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.discard_draft)) }
     }
@@ -828,6 +982,8 @@ internal fun BookScreen(
     Form(R.string.reports, state) {
         Text(stringResource(R.string.month_to_date), style = MaterialTheme.typography.titleLarge)
         Text(stringResource(R.string.currency_totals_hint))
+        val incompleteCount = state.incompleteCount
+        if (incompleteCount > 0) Text(stringResource(R.string.incomplete_count, incompleteCount))
         if (state.totals.isEmpty()) Text(stringResource(R.string.no_report_activity))
         state.totals.forEach { total ->
             Text(total.currency.code, style = MaterialTheme.typography.titleLarge)
