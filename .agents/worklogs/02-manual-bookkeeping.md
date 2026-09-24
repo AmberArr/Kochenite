@@ -392,3 +392,10 @@ run covers its compact default viewport, typed editor input, activity
 recreation and process restart. Keep the remaining visual/accessibility matrix
 in milestone 2.9; it does not block this verified implementation increment.
 Next: begin milestone 2.7 reports and current-rate estimates.
+
+
+## Transaction editor visual refinement — September 24, 2026
+
+Refined the editor in `app/src/main/kotlin/BookScreen.kt` without changing field order or transaction behavior. Amount is now an unoutlined hero with visible currency, direct text input, and an accessible compact sign toggle. Transaction kind uses a compact selector; account, destination, category, and date/time use left-aligned label/value rows with trailing chevrons. Merchant/payee remains a text input. Allocation details and More details are low-emphasis action rows, and Save incomplete now sits beside Post in the fixed footer. Added the Account and sign-toggle accessibility strings in `app/src/main/res/values/strings.xml`.
+
+Updated `BookUiDeviceTest` to click the footer Save incomplete action after its relocation. `./gradlew spotlessApply verify :app:assembleDebug :app:assembleDebugAndroidTest` passed. The updated APKs were installed over the existing debug installation with `adb install -r`, preserving its data. `node scripts/run-financial-tests.mjs adb-a2480128-JKi84V._adb-tls-connect._tcp --ui` completed all 38 financial, setup, UI, and process-restart assertions. The editor was visually inspected on the connected OnePlus 6T; dark-theme, wide-layout, and dedicated keyboard/system-bar stress coverage remain in milestone 2.9. `git diff --check` passed.

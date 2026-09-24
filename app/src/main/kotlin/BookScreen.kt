@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -69,16 +70,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.NavHost
@@ -226,20 +231,54 @@ private fun Choice(
     selected: String,
     choices: List<Pair<String?, String>>,
     useSheet: Boolean = true,
+    editorRow: Boolean = false,
+    compactEditor: Boolean = false,
+    rowLabel: Int? = null,
     change: (String?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val labelText = stringResource(label)
     Column {
-        Text(labelText, style = MaterialTheme.typography.labelLarge)
-        TextButton(
-            onClick = {
-                query = ""
-                expanded = true
-            },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("choice-$labelText"),
-        ) { Text(selected) }
+        val open = {
+            query = ""
+            expanded = true
+        }
+        when {
+            editorRow -> {
+                EditorSelectorRow(
+                    label = stringResource(rowLabel ?: label),
+                    value = selected,
+                    onClick = open,
+                    testTag = "choice-$labelText",
+                )
+            }
+
+            compactEditor -> {
+                FilterChip(
+                    selected = false,
+                    onClick = open,
+                    label = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            Text(selected)
+                            Text("⌄", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("choice-$labelText"),
+                )
+            }
+
+            else -> {
+                Text(labelText, style = MaterialTheme.typography.labelLarge)
+                TextButton(
+                    onClick = open,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("choice-$labelText"),
+                ) { Text(selected) }
+            }
+        }
         if (useSheet && expanded) {
             val selectedId = choices.firstOrNull { it.second == selected }?.first
             val visibleChoices = choices.filter { query.isBlank() || it.second.contains(query, ignoreCase = true) }
@@ -289,6 +328,141 @@ private fun Choice(
                             expanded = false
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorSelectorRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    testTag: String? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .then(if (testTag == null) Modifier else Modifier.testTag(testTag))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun EditorActionRow(
+    title: String,
+    summary: String? = null,
+    expanded: Boolean? = null,
+    onClick: () -> Unit,
+    testTag: String? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .then(if (testTag == null) Modifier else Modifier.testTag(testTag))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            if (!summary.isNullOrBlank()) {
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Text(
+            when (expanded) {
+                true -> "⌃"
+                false -> "⌄"
+                null -> "›"
+            },
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AmountHero(
+    label: String,
+    currency: String,
+    value: String,
+    negative: Boolean,
+    allowSign: Boolean,
+    focusRequester: FocusRequester,
+    onValueChange: (String) -> Unit,
+    onToggleSign: () -> Unit,
+) {
+    val signDescription = stringResource(if (negative) R.string.make_amount_positive else R.string.make_amount_negative)
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(currency, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 58.dp)
+                        .focusRequester(focusRequester)
+                        .testTag("field-$label")
+                        .semantics { contentDescription = label },
+                singleLine = true,
+                textStyle =
+                    MaterialTheme.typography.displaySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (value.isEmpty()) {
+                            Text(
+                                "0",
+                                style = MaterialTheme.typography.displaySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+            )
+            if (allowSign) {
+                TextButton(
+                    onClick = onToggleSign,
+                    modifier =
+                        Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = signDescription }
+                            .testTag("amount-sign-toggle"),
+                ) {
+                    Text(if (negative) "−" else "+", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -372,6 +546,8 @@ private fun DatePickerField(
 @Composable private fun EditorLayout(
     state: BookState,
     postEnabled: Boolean,
+    showIncomplete: Boolean,
+    onSaveIncomplete: () -> Unit,
     onPost: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -381,19 +557,32 @@ private fun DatePickerField(
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
             content()
             Spacer(Modifier.height(16.dp))
         }
-        Column(
-            Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Button(onClick = onPost, enabled = postEnabled && !state.saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.post))
+        Column(Modifier.fillMaxWidth().imePadding()) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                if (showIncomplete) {
+                    TextButton(onClick = onSaveIncomplete, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text(stringResource(R.string.save_incomplete), maxLines = 1)
+                    }
+                }
+                Button(
+                    onClick = onPost,
+                    enabled = postEnabled && !state.saving,
+                    modifier = Modifier.weight(if (showIncomplete) 1.4f else 1f).heightIn(min = 52.dp),
+                ) {
+                    Text(stringResource(R.string.post), maxLines = 1)
+                }
             }
         }
     }
@@ -2106,10 +2295,13 @@ private fun EntryEditorForm(
     }
     val amountFocus = remember(id) { FocusRequester() }
     LaunchedEffect(id, autofocusAmount) { if (autofocusAmount) amountFocus.requestFocus() }
+    val unknown = current.input.amountMinor == null || (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
     EditorLayout(
-        state,
-        current.input.amountMinor != null && (current.input.kind != EntryKind.TRANSFER || current.input.receivedMinor != null),
-        model::confirmEditor,
+        state = state,
+        postEnabled = !unknown,
+        showIncomplete = unknown,
+        onSaveIncomplete = saveIncomplete,
+        onPost = model::confirmEditor,
     ) {
         Text(
             stringResource(
@@ -2121,6 +2313,8 @@ private fun EntryEditorForm(
                     R.string.saved
                 },
             ),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         editor.error?.let {
             Text(
@@ -2133,19 +2327,25 @@ private fun EntryEditorForm(
                     },
             )
         }
-        Text(account?.currency?.code.orEmpty(), style = MaterialTheme.typography.labelLarge)
-        Field(
-            if (current.input.kind ==
-                EntryKind.TRANSFER
-            ) {
-                R.string.sent_amount
-            } else {
-                R.string.amount
-            },
-            amountText,
-            { text -> model.updateEditor { changeAmount(it, text) } },
-            number = true,
+        val amountLabel = stringResource(if (current.input.kind == EntryKind.TRANSFER) R.string.sent_amount else R.string.amount)
+        AmountHero(
+            label = amountLabel,
+            currency = account?.currency?.code.orEmpty(),
+            value = amountText,
+            negative = amountText.trimStart().startsWith("-"),
+            allowSign = current.input.kind != EntryKind.TRANSFER,
             focusRequester = amountFocus,
+            onValueChange = { text -> model.updateEditor { changeAmount(it, text) } },
+            onToggleSign = {
+                val signIndex = amountText.indexOfFirst { !it.isWhitespace() }.let { if (it < 0) 0 else it }
+                val toggled =
+                    when {
+                        amountText.getOrNull(signIndex) == '-' -> amountText.removeRange(signIndex, signIndex + 1)
+                        amountText.getOrNull(signIndex) == '+' -> amountText.replaceRange(signIndex, signIndex + 1, "-")
+                        else -> amountText.substring(0, signIndex) + "-" + amountText.substring(signIndex)
+                    }
+                model.updateEditor { changeAmount(it, toggled) }
+            },
         )
         Choice(
             R.string.transaction_kind,
@@ -2167,6 +2367,7 @@ private fun EntryEditorForm(
                 EntryKind.INCOME.name to stringResource(R.string.income),
                 EntryKind.TRANSFER.name to stringResource(R.string.transfer),
             ),
+            compactEditor = true,
         ) { selected ->
             val kind = EntryKind.valueOf(selected ?: EntryKind.EXPENSE.name)
             if (kind != current.input.kind) {
@@ -2179,10 +2380,13 @@ private fun EntryEditorForm(
                 }
             }
         }
+        Spacer(Modifier.height(12.dp))
         Choice(
             R.string.account_name,
             account?.name ?: stringResource(R.string.select_account),
             state.accounts.filter { !it.account.archived }.map { it.account.id to "${it.account.name} · ${it.account.currency.code}" },
+            editorRow = true,
+            rowLabel = R.string.transaction_account,
         ) { selected -> if (selected != null) model.updateEditor { changeAmount(it, amountText, selected) } }
         if (current.input.kind == EntryKind.TRANSFER) {
             val destination = state.accounts.find { it.account.id == current.input.destinationAccountId }?.account
@@ -2194,6 +2398,7 @@ private fun EntryEditorForm(
                 state.accounts
                     .filter { !it.account.archived && it.account.id != current.input.accountId }
                     .map { it.account.id to "${it.account.name} · ${it.account.currency.code}" },
+                editorRow = true,
             ) { selected ->
                 model.updateEditor { draft ->
                     val chosen = state.accounts.find { it.account.id == selected }?.account
@@ -2225,6 +2430,7 @@ private fun EntryEditorForm(
                     R.string.category,
                     categories.find { it.id == allocation?.categoryId }?.name ?: stringResource(uncategorized),
                     listOf(null to stringResource(uncategorized)) + categories.map { it.id to it.name },
+                    editorRow = true,
                 ) { selected ->
                     model.updateEditor { draft ->
                         val old = draft.input.allocations.singleOrNull()
@@ -2255,26 +2461,29 @@ private fun EntryEditorForm(
                     } else {
                         stringResource(R.string.totals_mismatch)
                     }
-                TextButton(onClick = { showAllocationDetails = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                    Text(
-                        "${stringResource(
-                            R.string.allocation_details,
-                        )} · ${current.input.allocations.size} · ${currency?.code.orEmpty()} ${allocated?.let {
-                            currency?.formatMinor(
-                                it,
-                            )
-                        } ?: "?"}/${actual?.let {
-                            currency?.formatMinor(
-                                it,
-                            )
-                        } ?: "?"}${if (current.input.receiptLines.isNotEmpty()) " · $receiptStatus" else ""}",
-                    )
-                }
+                val allocationSummary =
+                    "${current.input.allocations.size} · ${currency?.code.orEmpty()} ${allocated?.let {
+                        currency?.formatMinor(
+                            it,
+                        )
+                    } ?: "?"}/${actual?.let {
+                        currency?.formatMinor(
+                            it,
+                        )
+                    } ?: "?"}${if (current.input.receiptLines.isNotEmpty()) " · $receiptStatus" else ""}"
+                EditorActionRow(
+                    title = stringResource(R.string.allocation_details),
+                    summary = allocationSummary,
+                    onClick = { showAllocationDetails = true },
+                    testTag = "allocation-details",
+                )
             }
             if (current.input.allocations.size <= 1 && current.input.receiptLines.isEmpty()) {
-                TextButton(onClick = {
-                    showAllocationDetails = true
-                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.allocation_details)) }
+                EditorActionRow(
+                    title = stringResource(R.string.allocation_details),
+                    onClick = { showAllocationDetails = true },
+                    testTag = "allocation-details",
+                )
             }
             if (showAllocationDetails) AllocationDetailsDialog(current, state, model) { showAllocationDetails = false }
         }
@@ -2289,15 +2498,13 @@ private fun EntryEditorForm(
                 java.time.format.DateTimeFormatter
                     .ofPattern("HH:mm", java.util.Locale.getDefault()),
             ) ?: timeText
-        TextButton(
+        Spacer(Modifier.height(12.dp))
+        EditorSelectorRow(
+            label = stringResource(R.string.transaction_date_time),
+            value = "$dateSummary · $timeSummary",
             onClick = { showDateTimePicker = true },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("transaction-date-time"),
-        ) {
-            Column(Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.transaction_date_time), style = MaterialTheme.typography.labelLarge)
-                Text("$dateSummary · $timeSummary", style = MaterialTheme.typography.bodyLarge)
-            }
-        }
+            testTag = "transaction-date-time",
+        )
         if (showDateTimePicker) {
             val initialDate = runCatching { LocalDate.parse(dateText) }.getOrNull() ?: current.input.date
             val initialTime = runCatching { LocalTime.parse(timeText) }.getOrNull() ?: current.input.time
@@ -2371,21 +2578,26 @@ private fun EntryEditorForm(
                     current.input.relatedEntryIds.isNotEmpty(),
             )
         }
-        TextButton(onClick = { moreOpen = !moreOpen }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            val selectedTagNames = current.input.tagIds.mapNotNull { id -> state.tags.find { it.id == id }?.name }
-            val summary =
-                listOfNotNull(
-                    current.input.note
-                        .takeIf { it.isNotBlank() }
-                        ?.let { stringResource(R.string.notes) },
-                    current.input.merchantAmount?.let { "${it.currency.code} ${it.currency.formatMinor(it.minor)}" },
-                    selectedTagNames.takeIf { it.isNotEmpty() }?.joinToString(),
-                    current.input.relatedEntryIds
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { stringResource(R.string.related_count, it.size) },
-                ).joinToString(" · ")
-            Text(if (summary.isBlank()) stringResource(R.string.more_details) else "${stringResource(R.string.more_details)} · $summary")
-        }
+        Spacer(Modifier.height(12.dp))
+        val selectedTagNames = current.input.tagIds.mapNotNull { tagId -> state.tags.find { it.id == tagId }?.name }
+        val moreSummary =
+            listOfNotNull(
+                current.input.note
+                    .takeIf { it.isNotBlank() }
+                    ?.let { stringResource(R.string.notes) },
+                current.input.merchantAmount?.let { "${it.currency.code} ${it.currency.formatMinor(it.minor)}" },
+                selectedTagNames.takeIf { it.isNotEmpty() }?.joinToString(),
+                current.input.relatedEntryIds
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { stringResource(R.string.related_count, it.size) },
+            ).joinToString(" · ")
+        EditorActionRow(
+            title = stringResource(R.string.more_details),
+            summary = moreSummary.ifBlank { null },
+            expanded = moreOpen,
+            onClick = { moreOpen = !moreOpen },
+            testTag = "more-details",
+        )
         if (moreOpen) {
             current.input.merchantAmount?.let {
                 Text("${stringResource(R.string.merchant_amount)} context: ${it.currency.code} ${it.currency.formatMinor(it.minor)}")
@@ -2607,12 +2819,6 @@ private fun EntryEditorForm(
                 { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } },
                 multiline = true,
             )
-        }
-        val unknown = current.input.amountMinor == null || (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
-        if (unknown) {
-            TextButton(onClick = saveIncomplete, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.save_incomplete))
-            }
         }
     }
 }

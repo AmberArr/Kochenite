@@ -76,6 +76,9 @@
     <string name="new_transaction">New transaction</string>
     <string name="transaction_kind">Transaction kind</string>
     <string name="amount">Amount</string>
+    <string name="transaction_account">Account</string>
+    <string name="make_amount_positive">Make amount positive</string>
+    <string name="make_amount_negative">Make amount negative</string>
     <string name="merchant_payee">Merchant or payee</string>
     <string name="transaction_date">Date (YYYY-MM-DD)</string>
     <string name="transaction_time">Local time (HH:MM)</string>

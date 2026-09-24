@@ -289,7 +289,7 @@ class BookUiDeviceTest {
         compose.onNodeWithText("More details").performScrollTo().performClick()
         field("Merchant currency (optional context)", "JPY")
         field("Merchant amount (optional context)", "1550")
-        compose.onNodeWithText("Save incomplete").performScrollTo().performClick()
+        compose.onNodeWithText("Save incomplete").performClick()
         compose.waitUntil(15000) {
             runBlocking { (book.incompleteDrafts() as LedgerResult.Success).value.any { it.input.merchant == merchant } }
         }
