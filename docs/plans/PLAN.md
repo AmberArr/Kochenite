@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1's synthetic proof is historically verified; its sample app and database code were retired from active source on 2026-09-26. Earlier Phase 2 milestones and the signed-entry update are verified. The transaction editor's review fixes and feature restructuring pass host verification and 38 physical-device checks. Full visual acceptance and later performance/release gates remain pending. Off-machine signing backup is still required before real bookkeeping use.
+Status: Phase 1's synthetic proof is historically verified; its sample app and database code were retired from active source on 2026-09-26. Earlier Phase 2 milestones and the signed-entry update are verified. The transaction editor redesign passes host verification, 41 physical-device checks and visual acceptance (live TalkBack and physical wide-device coverage remain open). Milestones 2.7–2.9, including performance/release gates, remain pending. Off-machine signing backup is still required before real bookkeeping use.
 
 ## Goal and Agreed Decisions
 
@@ -183,7 +183,7 @@ results. Off-machine signing backup remains required before real use.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
-Status: in progress. Earlier milestones 2.0–2.6 and the signed-entry update are verified. The authorized transaction editor redesign passes host verification and instrumentation builds; review findings and full device verification remain outstanding. See the [detailed milestones](phases/02-manual-bookkeeping.md),
+Status: in progress. Earlier milestones 2.0–2.6 and the signed-entry update are verified. The authorized transaction editor redesign, its review fixes and visual acceptance are verified; 2.7 is next. See the [detailed milestones](phases/02-manual-bookkeeping.md),
 [financial examples](../../docs/financial-rules.md) and [worklog](../worklogs/02-manual-bookkeeping.md).
 
 - Deliver milestones 2.0–2.9 in order: decisions, kernel/storage, setup/accounts/categories, basic entry/editing/trash, transfers/incomplete/credits, receipt lines/splits, search/tags/templates/bulk categories, reports/rates, plain SQLite backup/restore, release validation.

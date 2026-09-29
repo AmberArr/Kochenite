@@ -66,6 +66,7 @@
     <string name="amount_error">Enter an exact amount using a decimal point, with the currency’s decimal precision.</string>
     <string name="currency_locked">Currency locked by a posting</string>
     <string name="select_account">Select an account to see its details</string>
+    <string name="choose_account">Choose account</string>
     <string name="add_account">Add account</string>
     <string name="new_transaction">New transaction</string>
     <string name="transaction_kind">Transaction kind</string>
@@ -212,6 +213,9 @@
     <string name="amounts_pending">Amounts pending</string>
     <string name="item_categories_error">Check item categories</string>
     <string name="account_allocation_pending"> · Account allocation pending</string>
-    <string name="item_reconciliation">%1$d items · Sum %2$s %3$s · Target %2$s %4$s · %5$s%6$s</string>
+    <plurals name="item_reconciliation">
+        <item quantity="one">%1$d item · Sum %2$s %3$s · Target %2$s %4$s · %5$s%6$s</item>
+        <item quantity="other">%1$d items · Sum %2$s %3$s · Target %2$s %4$s · %5$s%6$s</item>
+    </plurals>
     <string name="unexpected_failure">The operation failed unexpectedly. Please try again.</string>
 </resources>

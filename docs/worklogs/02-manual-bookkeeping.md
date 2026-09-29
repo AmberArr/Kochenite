@@ -808,3 +808,65 @@ Verification:
 Not checked: the missing-signing failure path was not exercised, to avoid
 moving the release keystore. No app code changed, so device tests were not
 rerun.
+
+## Editor visual acceptance — September 30, 2026
+
+Ran the editor visual acceptance matrix on the OnePlus 6T/API 35 debug build
+(synthetic data only, installed with `-r`). Screenshots were checked by eye, and
+touch targets and accessibility labels were read from `uiautomator dump`. The
+phone's settings were changed temporarily and then restored: dark mode, font
+scale 1.0/1.5/2.0, locked landscape, and `wm density 300` for a 1248dp-wide
+window. Afterwards the phone read font 1.0, night mode no, physical density 450,
+auto-rotate on.
+
+Passed without changes: compact portrait in light and dark (recreation after
+the theme change keeps the editor's input); Expense and Transfer layouts,
+including cross-currency received currency; account sheet in dark; keyboard
+with the focused field and Save footer visible at font scale 2.0; Back with the
+keyboard open only hides it; Back from Items returns to the form, and Back on a
+changed form asks before discarding; rotation keeps typed input; system-bar
+and cutout insets; all editor controls are at least 48dp. The Overview
+balance and incomplete count were unchanged after discarding.
+
+Defects found and fixed:
+
+- The sign toggle announced only "−"/"+". It now announces "Make amount
+  positive/negative" (the string existed but was unused); removed the
+  commented-out icon code.
+- TalkBack read the "›" glyphs inside editor rows; they are now hidden from
+  accessibility.
+- An empty account row showed "Select an account to see its details"; it now
+  shows "Choose account".
+- At font scale 2.0, the Expense/Income/Transfer tabs broke mid-word and
+  "From receipt" wrapped into three lines. Tab labels now stay on one line and
+  shrink to fit only when needed. The date/receipt row wraps as whole buttons.
+- On wide windows, the editor, Items screen and Save button stretched across
+  the full width, with the amount far from its label. They are now capped at
+  640dp and centred. The date/time dialog's 560dp cap had no effect because it
+  came after `fillMaxWidth`.
+- The item sheet's hard-coded "Amount" is now a string resource; "1 items" is
+  now a plural.
+
+Verification: `./gradlew spotlessApply verify :app:assembleDebug
+:app:assembleDebugAndroidTest :persistence:assembleDebugAndroidTest` passed.
+The fixed cases were rechecked on the phone: font 2.0 dark, wide 1248dp
+editor, and date dialog width. After installing both test APKs,
+`node scripts/run-financial-tests.mjs <serial> --ui` passed 41/41. No app data
+was cleared.
+
+Limitations and open items:
+
+- TalkBack was not run live; labels were checked through the uiautomator tree
+  and the code.
+- The wide layout was checked only with a density override on the phone. No
+  tablet or foldable was used, and the Pixel 8 Pro was not connected.
+- Real edge-swipe and predictive Back animations still need a hand check.
+- Not changed (product/design choices): dates show as ISO text, although the
+  plan calls for locale-aware formatting; the app uses default Material purple,
+  although the plan calls for teal accents; "Attachment" and a disabled
+  "From receipt" remain inert placeholders.
+- In compact landscape the form area is short (it scrolls).
+- At font 2.0 each tab label sizes itself, so labels can differ slightly in
+  size.
+- The last Back left the app, and the phone returned to the previous
+  (unrelated) task. That screenshot was deleted without being viewed.

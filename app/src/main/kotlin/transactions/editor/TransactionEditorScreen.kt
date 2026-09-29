@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,6 +27,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -33,7 +37,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -67,11 +70,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
@@ -80,6 +84,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
@@ -109,7 +114,7 @@ import java.time.LocalTime
 import java.time.ZoneOffset
 import java.util.Currency
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun TransactionEditorScreen(
     state: BookState,
@@ -156,8 +161,14 @@ internal fun TransactionEditorScreen(
             model.titleFocused()
         }
     }
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier
+                .weight(1f)
+                .widthIn(max = EditorMaxWidth)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+        ) {
             val kinds = listOf(EntryKind.EXPENSE, EntryKind.INCOME, EntryKind.TRANSFER)
             val labels = listOf(R.string.expense, R.string.income, R.string.transfer)
             PrimaryTabRow(selectedTabIndex = kinds.indexOf(current.input.kind).coerceAtLeast(0)) {
@@ -166,11 +177,15 @@ internal fun TransactionEditorScreen(
                         selected = current.input.kind == kind,
                         enabled = !editor.saving,
                         onClick = { model.updateEditor { it.withKind(kind, accounts) } },
-                        text = { Text(stringResource(labels[index])) },
+                        text = { Text(stringResource(labels[index]), maxLines = 1, autoSize = TabLabelAutoSize) },
                     )
                 }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
                 TextButton(onClick = {
                     showDateTimePicker = true
                 }, modifier = Modifier.testTag("transaction-date-time")) {
@@ -260,7 +275,7 @@ internal fun TransactionEditorScreen(
             HorizontalDivider()
             Choice(
                 if (transfer) R.string.from_account else R.string.transaction_account,
-                account?.name ?: stringResource(R.string.select_account),
+                account?.name ?: stringResource(R.string.choose_account),
                 accounts.filter { !it.archived }.map { it.id to "${it.name} · ${it.currency.code}" },
                 editorRow = true,
             ) { id ->
@@ -270,7 +285,7 @@ internal fun TransactionEditorScreen(
             if (transfer) {
                 Choice(
                     R.string.destination_account,
-                    destination?.name ?: stringResource(R.string.select_account),
+                    destination?.name ?: stringResource(R.string.choose_account),
                     accounts.filter { !it.archived && it.id != account?.id }.map { it.id to "${it.name} · ${it.currency.code}" },
                     editorRow = true,
                 ) { id ->
@@ -322,7 +337,12 @@ internal fun TransactionEditorScreen(
                 model.confirmEditor()
             },
             enabled = !editor.saving,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 52.dp),
+            modifier =
+                Modifier
+                    .widthIn(max = EditorMaxWidth)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .heightIn(min = 52.dp),
             shape =
                 androidx.compose.foundation.shape
                     .RoundedCornerShape(12.dp),
@@ -362,7 +382,7 @@ internal fun TransactionEditorScreen(
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
             androidx.compose.material3.Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).widthIn(max = 560.dp),
+                modifier = Modifier.padding(horizontal = 12.dp).widthIn(max = 560.dp).fillMaxWidth(),
                 shape = MaterialTheme.shapes.extraLarge,
             ) {
                 Column(
@@ -458,8 +478,14 @@ private fun AmountControl(
                 enabled = enabled,
                 shape = CircleShape,
                 border = ButtonDefaults.outlinedButtonBorder(enabled),
-            ) { Text(if (negative) "−" else "+", style = MaterialTheme.typography.headlineSmall) }
-            // ){    Icon(painterResource(R.drawable.ic_launcher), contentDescription = signAction) }
+                modifier = Modifier.semantics { contentDescription = signAction },
+            ) {
+                Text(
+                    if (negative) "−" else "+",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.clearAndSetSemantics {},
+                )
+            }
         }
         BasicTextField(
             text,
@@ -622,8 +648,9 @@ private fun reconciliation(
         } else {
             ""
         }
-    return stringResource(
-        R.string.item_reconciliation,
+    return pluralStringResource(
+        R.plurals.item_reconciliation,
+        editor.input.receiptLines.size,
         editor.input.receiptLines.size,
         currency.code,
         sum?.let(currency::formatMinor) ?: "?",
@@ -650,7 +677,13 @@ private fun TransactionItemsScreen(
     val undo = stringResource(R.string.undo)
     val uncategorized = stringResource(R.string.uncategorized)
     val transactionTitle = if (current.input.merchant.isBlank()) stringResource(R.string.new_transaction) else current.input.merchant
-    Column(Modifier.fillMaxSize()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .wrapContentWidth()
+            .widthIn(max = EditorMaxWidth)
+            .fillMaxWidth(),
+    ) {
         Text(
             transactionTitle,
             Modifier.padding(horizontal = 16.dp),
@@ -848,7 +881,7 @@ private fun TransactionItemsScreen(
                     }
                 }
                 AmountControl(
-                    "Amount",
+                    stringResource(R.string.amount),
                     currency = current.transactionCurrency,
                     text = current.lineTexts[item.id].orEmpty(),
                     allowSign = false,
@@ -1057,3 +1090,8 @@ private fun OptionalSelectionRows(
         }
     }
 }
+
+private val EditorMaxWidth = 640.dp
+
+// Keeps each tab label on one line at large font scales instead of breaking mid-word.
+private val TabLabelAutoSize = TextAutoSize.StepBased(minFontSize = 8.sp)
