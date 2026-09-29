@@ -926,3 +926,30 @@ Limitations: dark and expanded layouts cover key screens, not every screen.
 Tabular figures (`tnum`) are specified in notes because Figma text styles here
 don't carry that feature. Motion and predictive Back are not designed. The
 file thumbnail could not be set through the API.
+
+### Redesign revision from user review — September 30, 2026
+
+The user reviewed the Figma file and requested nine changes; all were applied
+in the same file:
+
+- Setup, New account and Balance adjustment now use the editor's amount
+  control (a new "Amount input" component with a leading −/+ button).
+- Amounts show currency symbols (¥612,300, −$16.50) instead of trailing
+  codes; currency pickers and settings show "¥ JPY". Codes remain in account
+  names, account descriptions and the currency pill.
+- "Opening" is no longer a separate kind: opening balances are adjustments
+  (the filter kind chips are now Expense, Income, Transfer, Adjustment).
+- Transaction rows were rebuilt as a new "Ledger row" component following
+  the user's Bluecoins reference: an icon and a 3×2 grid (title — merchant
+  or other-side amount in tertiary — account amount; category — account and
+  running balance), plus an optional note line. Transfers show one row per
+  side. The old row component was removed.
+- Editor: the currency pill has no dropdown arrow; helper sentences were
+  removed; the "More details" group is gone and all fields sit in one list;
+  the note is an inline field with an ✕ clear button, so the separate Notes
+  sheet was removed.
+
+Dark and tablet frames were regenerated from the updated phone screens.
+Checked with Figma screenshots of the setup, overview, transactions, editor,
+detail, accounts and tablet frames. Running balances in the rows are a
+display requirement that the current list code does not compute yet.
