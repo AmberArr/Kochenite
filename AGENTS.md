@@ -2,8 +2,8 @@
 
 ## Plans and Session Workflow
 
-- The intended master plan is `.agents/plans/PLAN.md`, with detailed plans in `.agents/plans/phases/01-foundation.md`, `02-manual-bookkeeping.md`, and so on.
-- Keep per-phase worklogs in `.agents/worklogs/01-foundation.md`, `02-manual-bookkeeping.md`, and so on, linked from their phase plans. Plans describe intended work and current decisions; worklogs record what happened.
+- The intended master plan is `docs/plans/PLAN.md`, with detailed plans in `docs/plans/phases/01-foundation.md`, `02-manual-bookkeeping.md`, and so on.
+- Keep per-phase worklogs in `docs/worklogs/01-foundation.md`, `02-manual-bookkeeping.md`, and so on, linked from their phase plans. Plans describe intended work and current decisions; worklogs record what happened.
 - At the start of each session, read the master plan, current phase plan and latest entries in its worklog, inspect the code and Git status, and continue from recorded progress.
 - Keep product scope, shared architecture, cross-phase decisions, dependencies, and phase status in the master plan. Link to the detailed phase plans.
 - At the start of a phase, create or refine its detailed plan based on the actual code. Include deliverables, implementation steps, data/API changes, tests, and explicit exit criteria. Do not duplicate shared architectural rules.
@@ -48,6 +48,9 @@
 - Inspect existing code and use its established patterns. Preserve user files and unrelated changes, including local skills and demo files; do not stage them incidentally.
 - Run checks appropriate to the change. Prioritize meaningful tests for financial invariants, migrations, recovery, extraction failures, and device workflows. Documentation-only changes do not require app builds.
 - Do not mark a phase complete until its exit criteria have evidence. Record checks that could not run and the reason.
-- Make focused Git commits after verified milestones, including relevant plan updates. Inspect the staged diff and run `git diff --cached --check` before committing.
+- Committing is standing-authorized: commit without asking whenever a coherent increment is verified. Do not let verified work accumulate uncommitted across increments or sessions.
+- Commit at these points: after each increment's relevant checks pass, before starting unrelated work, and before ending a session. Include the related plan and worklog updates in the same commit. Documentation-only changes need no app build before committing.
+- Do not commit work whose checks fail or have not run. Leave it uncommitted and record its state and the missing checks in the worklog.
+- Keep commits focused: split independent changes into separate commits. Inspect the staged diff and run `git diff --cached --check` before each commit.
 - Stage explicit paths. Keep the user's `master` branch unless instructed otherwise. Do not push, rewrite history, revert unrelated work, or commit secrets without authorization.
 - Git metadata may be read-only inside the sandbox even when source files are writable. If necessary, use the supported approval mechanism for authorized Git writes; do not delete or recreate `.git` as a workaround.

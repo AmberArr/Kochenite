@@ -7,9 +7,9 @@ not an app ready for financial records.
 - [Current Gradle build and test commands](docs/gradle-build.md)
 - [Release signing and recovery](docs/release-signing.md)
 - [Historical Toolchain capability matrix](docs/toolchain-proof.md)
-- [Master plan](.agents/plans/PLAN.md)
-- [Phase 1 plan and verification status](.agents/plans/phases/01-foundation.md)
-- [Phase 1 worklog and verification evidence](.agents/worklogs/01-foundation.md)
+- [Master plan](docs/plans/PLAN.md)
+- [Phase 1 plan and verification status](docs/plans/phases/01-foundation.md)
+- [Phase 1 worklog and verification evidence](docs/worklogs/01-foundation.md)
 
 Use the pinned `./gradlew` wrapper from the repository root with default caches.
 Run `./gradlew spotlessApply` to format Kotlin and `./gradlew verify` for host

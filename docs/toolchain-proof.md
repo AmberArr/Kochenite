@@ -3,7 +3,7 @@
 Status: historical Toolchain proof, preserved in commit `368ce38`. The user chose
 Gradle on September 22, 2026 (local date); see [the current build](gradle-build.md).
 Commands and paths below describe that proof commit. For current Phase 1 status,
-see the [phase plan](../.agents/plans/phases/01-foundation.md).
+see the [phase plan](plans/phases/01-foundation.md).
 The `proof-*`/`toolchain-proof` modules were
 disposable experiments with a public test database key, not a safe place for
 financial records. Work began 2026-09-21 15:09 UTC; final verification completed
@@ -197,10 +197,9 @@ The public temporary certificate SHA-256 fingerprint is
 No private key/password is committed. The permanent signing-key backup/recovery
 procedure and actual user-controlled off-machine backup remain after the gate.
 
-## Next Action
+## Current Status
 
-The user selected Gradle. Migrate the build and implement the remaining
-[Phase 1 milestones](../.agents/plans/phases/01-foundation.md), including production
-key management, failure preservation, migration/atomicity tests, ViewModels,
-durable signing and upgrade continuity. Phase 2 must not start until all Phase 1
-exit criteria have evidence. The disposable proof database is not the financial schema.
+The Toolchain evaluation is complete and remains historical evidence for the
+Gradle decision. Current implementation and phase status live in the
+[master plan](plans/PLAN.md) and [build guide](gradle-build.md). Toolchain proof
+modules and their temporary database were experiments, not financial storage.
