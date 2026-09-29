@@ -131,8 +131,8 @@ for the next upgrade; e.g. version 3 after version 2:
 node scripts/check-apk.mjs app/build/outputs/apk/release/app-release.apk "$ANDROID_HOME" release
 ```
 
-The APK checker validates artifact identity, signature, alignment and debug
-isolation. It does not exercise persisted financial records in a release upgrade;
+The APK checker validates artifact identity, signature, alignment, debug
+isolation and that `INTERNET` is the only platform permission. It does not exercise persisted financial records in a release upgrade;
 that remains part of the Phase 2 release-validation gate. Do not run `clean` or
 rebuild while a runner is consuming an APK.
 
@@ -167,6 +167,6 @@ prerequisite for real use.
 
 Future recognition development will use
 `adb -s "$ANDROID_SERIAL" reverse tcp:8787 tcp:8787`; enable localhost cleartext
-only in debug when that service is added. No recognition server or network
-permission is introduced in this phase. Future iOS work can use Gradle/KMP with
+only in debug when that service is added. No recognition server is introduced
+in this phase; `INTERNET` exists only for crash diagnostics. Future iOS work can use Gradle/KMP with
 the independent domain; iOS targets remain unimplemented.

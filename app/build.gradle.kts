@@ -89,11 +89,14 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.11.2")
 }
 val requireReleaseSigning by tasks.registering {
+    // Capture plain files only: the configuration cache cannot serialize script references.
+    val signingFile = releaseSigningFile
+    val storeFile = releaseSigning.getProperty("storeFile")?.let { file(it) }
     doLast {
         check(
-            releaseSigningFile.isFile,
+            signingFile.isFile,
         ) { "Release signing is missing. Restore .local/signing; never regenerate an existing release identity." }
-        check(file(releaseSigning.getProperty("storeFile")).isFile) { "Release keystore is missing; restore it from backup." }
+        check(storeFile?.isFile == true) { "Release keystore is missing; restore it from backup." }
     }
 }
 tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(requireReleaseSigning) }

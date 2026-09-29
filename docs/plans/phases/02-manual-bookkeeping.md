@@ -175,7 +175,8 @@ verified commits and keep dated results only in the worklog.
 - Transaction UI/signed-entry update: previously verified; [verification evidence](../../worklogs/02-manual-bookkeeping.md#transaction-ui-implementation-verification--september-23-2026). The new editor lifecycle supersedes its ordinary draft behavior.
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
 - Save refresh scoping and grouped account balances: verified; see the [performance fix evidence](../../worklogs/02-manual-bookkeeping.md#save-refresh-and-balance-query-performance--september-27-2026). Search scans, related-picker debounce and list recomposition costs remain open.
-- Next: complete the editor visual acceptance matrix (compact/wide, themes, large text, keyboard/insets and accessibility) before beginning 2.7. Review fixes and 38 physical-device regression checks pass; see the [review-fix evidence](../../worklogs/02-manual-bookkeeping.md#review-fixes-and-feature-structure--september-27-2026).
+- Release builds work with the configuration cache and the APK check allows only the diagnostics `INTERNET` permission; see the [build fix evidence](../../worklogs/02-manual-bookkeeping.md#release-build-and-apk-check-fixes--september-30-2026).
+- Next: complete the editor visual acceptance matrix (compact/wide, themes, large text, keyboard/insets and accessibility) before beginning 2.7. Review fixes pass; see the [review-fix evidence](../../worklogs/02-manual-bookkeeping.md#review-fixes-and-feature-structure--september-27-2026). The latest device run passed 41 checks; see the [navigation evidence](../../worklogs/02-manual-bookkeeping.md#navigation-and-back-consistency--september-27-2026).
 
 ## Transaction editor redesign
 

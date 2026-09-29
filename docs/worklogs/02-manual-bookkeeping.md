@@ -779,3 +779,32 @@ intermediate states.
 Devices: `adb devices -l` now also lists a Pixel 8 Pro (husky) besides the
 reference OnePlus 6T; it is not yet part of the recorded coverage. Next action
 is unchanged: the editor visual acceptance matrix.
+
+## Release build and APK check fixes — September 30, 2026
+
+Fixed the two open build issues from the Sentry entry before visual acceptance.
+
+- `app/build.gradle.kts`: `requireReleaseSigning` now captures the signing
+  properties file and resolved keystore as plain `File` values at configuration
+  time. Its `doLast` previously referenced script members and `Project.file`,
+  which the configuration cache cannot serialize.
+- `scripts/check-apk.mjs`: allows exactly `android.permission.INTERNET` (crash
+  diagnostics) and reports any other platform permission by name.
+- `docs/gradle-build.md`: the APK checker and network-permission statements
+  now reflect the diagnostics permission.
+
+Verification:
+
+- Reproduced first: `./gradlew :app:assembleRelease` failed with "cannot
+  serialize Gradle script object references" for `:app:requireReleaseSigning`.
+- After the fix, `./gradlew :app:assembleRelease :app:assembleDebug` passed
+  and stored the cache; a repeat `:app:assembleRelease` reported "Reusing
+  configuration cache." and still executed `:app:requireReleaseSigning`.
+- `node scripts/check-apk.mjs` passed for both the release and debug APKs
+  (signature, 16 KB alignment, debug isolation). A synthetic badging sample
+  confirmed `CAMERA` is still rejected while `INTERNET` is allowed.
+- `./gradlew verify` passed.
+
+Not checked: the missing-signing failure path was not exercised, to avoid
+moving the release keystore. No app code changed, so device tests were not
+rerun.

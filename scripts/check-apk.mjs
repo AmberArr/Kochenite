@@ -22,7 +22,11 @@ if (badging.includes('application-debuggable') !== (mode === 'debug')) throw new
 if (!badging.includes("minSdkVersion:'26'") || !badging.includes("targetSdkVersion:'36'")) {
   throw new Error('Incorrect SDK configuration');
 }
-if (/uses-permission: name='android\.permission\./.test(badging)) throw new Error('Unexpected platform permission');
+// INTERNET is required only for crash diagnostics; financial records never leave the device.
+const allowedPermissions = new Set(['android.permission.INTERNET']);
+const platformPermissions = [...badging.matchAll(/uses-permission: name='(android\.permission\.[^']+)'/g)].map(match => match[1]);
+const unexpectedPermissions = platformPermissions.filter(permission => !allowedPermissions.has(permission));
+if (unexpectedPermissions.length > 0) throw new Error(`Unexpected platform permission: ${unexpectedPermissions.join(', ')}`);
 const signature = run(join(buildTools, 'apksigner'), ['verify', '--verbose', '--print-certs', apk]);
 if (mode === 'release' && !signature.includes(`certificate SHA-256 digest: ${readFileSync('docs/release-certificate.sha256', 'utf8').trim()}`)) {
   throw new Error('Release signing identity does not match recorded certificate');
