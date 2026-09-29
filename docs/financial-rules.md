@@ -14,8 +14,9 @@ negative and subtracts its magnitude when the Expense is positive. Thus
 spending = negative-Expense allocations − positive-Expense credits;
 net flow = income − spending. Receipt lines are explanations, never extra totals.
 Net worth sums included accounts by currency, including archived and negative
-accounts. Draft, incomplete and trash rows contribute nothing. Opening balances
-and adjustments affect balances only. No report converts historical amounts.
+accounts. Unposted recognition drafts, explicitly saved incomplete records and trash
+rows contribute nothing. Opening balances and adjustments affect balances only. No
+report converts historical amounts.
 
 Expense and Income: one posting equal to the signed actual amount, with
 nonnegative allocations summing exactly to its absolute magnitude. Negative
@@ -73,28 +74,33 @@ second and third lines: [336, 202, 135], sum 673. Equal remainders use original
 line ordering. User corrections must still sum to 673. Merchant [500, 300, 199]
 against total 1000 fails reconciliation; no tax or adjustment is invented.
 
-## Durable state transitions
+## Manual transaction state transitions
 
-- New → persisted draft: stable draft and proposed transaction IDs, no postings.
-- Draft → incomplete: preserve input with explicit incomplete state; no postings
-  or authoritative allocations, even when one transfer amount is known.
-- Draft/incomplete → posted: explicit confirmation validates the persisted version,
-  date, accounts/categories, signs and exact allocation sums, writes the complete
-  aggregate and consumes the draft in one database transaction. Repeating the same
-  confirmation cannot post again. Saved input cannot silently change under a confirm.
-- Posted → edit draft: persist candidate input and the starting current-record token;
-  the original remains effective. Save uses draft concurrency tokens. Confirmation
-  compares the original token inside the write transaction before replacement.
-  Any intervening edit/trash/restore/category change makes that draft stale; reject
-  without losing the draft or overwriting current records. Tokens are current-state
-  concurrency markers, not revision history and cannot restore previous versions.
-- Posted → trash: remove its contribution once, retaining the aggregate. Trash →
-  posted: validate and restore once. Related-transaction references are context only.
-- Trash → permanent purge: confirmed deletion removes the aggregate and dependents;
-  inbound transaction references detach, account currency stays locked. No automatic purge.
-- Draft → discarded: explicit deletion has no effect on balances or spending.
-- Any failed mutation → rollback: ledger and persisted draft stay as before the call.
-  Temporary storage errors permit retry; recovery-required preserves database files.
+- New or copied editor → in-memory input: no database row, posting, balance,
+  report, or recovery payload is written. A surviving ViewModel retains active
+  form input; process termination loses it.
+- Posted → in-memory edit: the original remains effective. Direct Save validates
+  the current input and starting posted-record token, then replaces postings,
+  allocations, items, tags and references in one database transaction. A stale
+  token or failed write leaves the original untouched and the form available.
+- New input with a genuinely missing actual amount → explicit incomplete: after
+  validating every supplied value, the user confirms Save transaction. The record
+  is stored with a concurrency token and has no postings or report contribution.
+  Editing an incomplete record is an in-memory session; leaving it preserves the
+  saved version. Delete checks its current token.
+- Incomplete → posted: one transaction validates the complete input, checks the
+  incomplete token and any posted-record token, replaces/creates the aggregate,
+  verifies affected balances and consumes the incomplete row. Repeating a stable
+  submission cannot post twice.
+- Future dates are rejected on Save, including incomplete saves. Posted entries
+  cannot be saved incomplete. Unknown transfer sides leave the whole transfer
+  non-authoritative.
+- Posted → trash and trash → posted retain their current token-checked atomic
+  behavior. Trash → purge requires confirmation, removes dependents and detaches
+  inbound references. Ordinary editor Back discards only its in-memory changes;
+  a changed form asks for confirmation first.
+- Any failed mutation rolls back the database. A failed editor save retains input
+  and keeps the original posted aggregate effective.
 
 Editing the USD 1234 expense above to signed amount −1500 replaces Cash −1234
 with −1500 and Food 1234 with 1500 atomically: balance 8500, spending 1500. Trash returns

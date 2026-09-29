@@ -36,6 +36,7 @@ class LedgerTest {
         assertEquals("-1.23", usd.formatMinor(-123))
         assertEquals(Long.MIN_VALUE, usd.parseMinor("-92233720368547758.08"))
         assertFailsWith<ArithmeticException> { usd.parseMinor("1.001") }
+        assertFailsWith<ArithmeticException> { BookCurrency("JPY", 0).parseMinor("125.00") }
         assertFailsWith<ArithmeticException> { usd.parseMinor("92233720368547758.08") }
         assertFailsWith<IllegalArgumentException> { BookCurrency("usd", 2) }
     }

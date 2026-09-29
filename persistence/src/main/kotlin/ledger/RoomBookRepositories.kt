@@ -1,6 +1,7 @@
 package moe.frost.kochenite.persistence.ledger
 
 import androidx.room.withTransaction
+import moe.frost.kochenite.domain.editor.EditorInput
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountBalance
 import moe.frost.kochenite.domain.ledger.AccountGroup
@@ -10,7 +11,6 @@ import moe.frost.kochenite.domain.ledger.BookSettings
 import moe.frost.kochenite.domain.ledger.Category
 import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.CategoryRepository
-import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryInput
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.InvalidReason
@@ -31,6 +31,7 @@ internal fun <T> LedgerResult<T>.required(): T =
         LedgerResult.AlreadyConfirmed -> throw Rejected(LedgerResult.AlreadyConfirmed)
         LedgerResult.TemporarilyUnavailable -> throw Rejected(LedgerResult.TemporarilyUnavailable)
         LedgerResult.RecoveryRequired -> throw Rejected(LedgerResult.RecoveryRequired)
+        LedgerResult.UnexpectedFailure -> throw Rejected(LedgerResult.UnexpectedFailure)
     }
 
 private fun reject(reason: InvalidReason): Nothing = throw Rejected(LedgerResult.Invalid(reason))
@@ -48,7 +49,10 @@ internal class RoomAccounts(
 
     override suspend fun list(): LedgerResult<List<AccountBalance>> =
         storageResult {
-            db.withTransaction { dao.accounts().map { AccountBalance(it.model(), dao.balance(it.id)) } }
+            db.withTransaction {
+                val balances = dao.balances().associate { it.accountId to it.balanceMinor }
+                dao.accounts().map { AccountBalance(it.model(), balances[it.id] ?: 0L) }
+            }
         }
 
     override suspend fun groups(): LedgerResult<List<AccountGroup>> =
@@ -123,8 +127,7 @@ internal class RoomAccounts(
         note: String,
     ): SavedEntry {
         val input = EntryInput(kind, date, time, id, amount, note = note)
-        val draft = posting.saveDraft(Draft(UUID.randomUUID().toString(), UUID.randomUUID().toString(), "", input), null).required()
-        return posting.confirm(draft.id, draft.token).required()
+        return posting.post(EditorInput(UUID.randomUUID().toString(), UUID.randomUUID().toString(), "", input)).required()
     }
 }
 

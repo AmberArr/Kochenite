@@ -33,8 +33,8 @@ const native = entries.filter(entry => /^lib\/[^/]+\/[^/]+\.so$/.test(entry));
 if (native.length !== 4 || native.some(entry => !entry.endsWith('/libandroidx.graphics.path.so'))) {
   throw new Error('Unexpected native library set; review before changing the expectation');
 }
-mkdirSync('.local/foundation-evidence', { recursive: true });
-const extracted = mkdtempSync('.local/foundation-evidence/apk-native-');
+mkdirSync('.local/financial-evidence', { recursive: true });
+const extracted = mkdtempSync('.local/financial-evidence/apk-native-');
 try {
   for (const entry of native) {
     const file = join(extracted, entry.replaceAll('/', '_'));
@@ -65,5 +65,5 @@ if (hasDebugCode !== (mode === 'debug') || hasDebugResource !== (mode === 'debug
 const summary = { ok: true, package: expected, debuggable: mode === 'debug', nativeLibraries: native.length,
   zipAlignment16Kb: true, elfAlignment16Kb: true, signature: true, debugIsolation: true,
   runtime16Kb: 'unverified' };
-writeFileSync(`.local/foundation-evidence/${mode}-apk.json`, `${JSON.stringify(summary, null, 2)}\n`);
+writeFileSync(`.local/financial-evidence/${mode}-apk.json`, `${JSON.stringify(summary, null, 2)}\n`);
 console.log(JSON.stringify(summary));

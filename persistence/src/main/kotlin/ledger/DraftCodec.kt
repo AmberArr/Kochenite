@@ -1,8 +1,8 @@
 package moe.frost.kochenite.persistence.ledger
 
+import moe.frost.kochenite.domain.editor.EditorInput
 import moe.frost.kochenite.domain.ledger.Allocation
 import moe.frost.kochenite.domain.ledger.BookCurrency
-import moe.frost.kochenite.domain.ledger.Draft
 import moe.frost.kochenite.domain.ledger.EntryInput
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.Money
@@ -13,7 +13,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /** Explicit schema; monetary JSON values are decimal strings, never floating point. */
-internal fun Draft.row(): DraftRow {
+internal fun EditorInput.row(incomplete: Boolean = false): DraftRow {
     val json =
         JSONObject()
             .put("version", 2)
@@ -36,6 +36,9 @@ internal fun Draft.row(): DraftRow {
             .put("allocationTexts", JSONObject(allocationTexts))
             .put("lineTexts", JSONObject(lineTexts))
             .put("tagIds", JSONArray(input.tagIds))
+            .put("negative", negative)
+            .put("transactionCurrency", transactionCurrency?.code)
+            .put("transactionScale", transactionCurrency?.scale)
             .put(
                 "allocations",
                 JSONArray().apply {
@@ -69,7 +72,7 @@ internal fun Draft.row(): DraftRow {
     return DraftRow(id, entryId, token, originalToken, incomplete, json.toString())
 }
 
-internal fun DraftRow.model(): Draft {
+internal fun DraftRow.model(): EditorInput {
     val json = JSONObject(payload)
     check(json.getInt("version") in 1..2)
     val legacy = json.getInt("version") == 1
@@ -99,7 +102,7 @@ internal fun DraftRow.model(): Draft {
         json.optJSONObject(key)?.let { objectJson ->
             objectJson.keys().asSequence().associateWith { objectJson.getString(it) }
         } ?: emptyMap()
-    return Draft(
+    return EditorInput(
         id,
         entryId,
         token,
@@ -126,7 +129,6 @@ internal fun DraftRow.model(): Draft {
             tagIds,
         ),
         originalToken,
-        incomplete,
         optional("amountText")?.let {
             if (legacyExpense && it.isNotBlank()) {
                 if (it.startsWith("-")) it else "-" + it.removePrefix("+")
@@ -141,5 +143,21 @@ internal fun DraftRow.model(): Draft {
         optional("merchantCurrencyText"),
         textMap("allocationTexts"),
         textMap("lineTexts"),
+        optional("transactionCurrency")?.let { BookCurrency(it, json.getInt("transactionScale")) },
+        if (json.has("negative")) {
+            json.getBoolean("negative")
+        } else {
+            (
+                optional("amount")?.toLong()?.let {
+                    if (legacyExpense) {
+                        it > 0
+                    } else {
+                        it <
+                            0
+                    }
+                }
+                    ?: (json.getString("kind") == "EXPENSE")
+            )
+        },
     )
 }

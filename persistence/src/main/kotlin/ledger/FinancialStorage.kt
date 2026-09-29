@@ -7,7 +7,7 @@ import kotlinx.coroutines.withContext
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import java.io.Closeable
 
-/** Opens financial data independently of the retained foundation-proof.db. Never resets files. */
+/** Opens financial data without deleting or recreating files after a failure. */
 class FinancialStorage internal constructor(
     private val context: Context,
     private val name: String,

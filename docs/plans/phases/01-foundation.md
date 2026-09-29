@@ -1,17 +1,20 @@
 # Phase 1: Foundation and Build-System Proof
 
-Status: complete for the synthetic Phase 1 foundation. Gradle, plain Room storage,
-device instrumentation, repeat clean builds and signed release upgrade are verified.
-Coverage limits and the prerequisite signing backup before real use are recorded below.
-Implementation history and verification results are in the
-[Phase 1 worklog](../../worklogs/01-foundation.md).
+Status: historical Phase 1 proof complete. Gradle, plain Room storage, device
+instrumentation, repeat clean builds and signed release upgrade were verified.
+On 2026-09-26, the synthetic sample app, its database implementation and its
+dedicated runners/tests were retired from active source after the financial app
+replaced them. The app does not open or migrate an existing `foundation-proof.db`;
+any such on-device file is left untouched. Coverage limits and the signing backup
+prerequisite remain recorded below. Implementation history and verification
+results are in the [Phase 1 worklog](../../worklogs/01-foundation.md).
 
-## Scope and Decisions
+## Historical Scope and Decisions
 
-Implement the user-approved Phase 1 plan. Kochenite uses release application ID
-`moe.frost.kochenite`, debug ID `moe.frost.kochenite.debug`, minimum API 26 and
-compile/target API 36. Synthetic data only. Shared architecture and scope remain
-in [the master plan](../PLAN.md).
+The following records the approved Phase 1 scope at the time. Kochenite used
+release application ID `moe.frost.kochenite`, debug ID
+`moe.frost.kochenite.debug`, minimum API 26 and compile/target API 36. Synthetic
+data only. Shared architecture and scope remain in [the master plan](../PLAN.md).
 
 Current storage decision: ordinary Room/SQLite in private internal storage.
 Database-level encryption, SQLCipher, passphrase generation/wrapping, database-key
@@ -89,11 +92,9 @@ and successful recovery check must be recorded before real bookkeeping use.
 This is separate from future encrypted exported database backups. Never regenerate
 the release identity to resolve a missing local key.
 
-Phase 2 has not started. Its next concrete action, when authorized, is to create
-`02-manual-bookkeeping.md` around the actual modules and design/test the separate
-financial schema and posting invariants first. Reuse the composition root,
-storage initialization/failure handling, migration tests, explicit device runner,
-signing identity and release upgrade checks. Keep `foundation-proof.db` disposable
-and separate; do not treat samples as financial transactions. Then implement
-setup/accounts/categories/manual entry/transfers and encrypted backup/restore.
-Recognition fixtures/provider contracts remain Phase 3 work.
+This plan now records historical implementation and verification only. Phase 2
+superseded the sample app with the financial ledger; it reuses the Gradle build,
+SQLite preservation factory, signing identity and device-testing patterns while
+using its own financial schema and migration tests. The retired sample data was
+never financial transaction data. See the [Phase 2 plan](02-manual-bookkeeping.md)
+for active scope and status.

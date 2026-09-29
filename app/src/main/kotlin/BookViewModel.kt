@@ -3,27 +3,24 @@ package moe.frost.kochenite
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import moe.frost.kochenite.accounts.AccountStateOwner
+import moe.frost.kochenite.domain.editor.IncompleteRecord
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountBalance
 import moe.frost.kochenite.domain.ledger.AccountGroup
-import moe.frost.kochenite.domain.ledger.Allocation
 import moe.frost.kochenite.domain.ledger.AllocationSelection
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.BookSettings
 import moe.frost.kochenite.domain.ledger.Category
 import moe.frost.kochenite.domain.ledger.CurrencyTotals
-import moe.frost.kochenite.domain.ledger.Draft
-import moe.frost.kochenite.domain.ledger.EntryInput
-import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.EntryStatus
 import moe.frost.kochenite.domain.ledger.EntryTemplate
 import moe.frost.kochenite.domain.ledger.LedgerCursor
@@ -31,18 +28,7 @@ import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.SavedEntry
 import moe.frost.kochenite.domain.ledger.Tag
-import moe.frost.kochenite.persistence.ledger.FinancialStorage
-import moe.frost.kochenite.persistence.ledger.RoomLedger
 import java.time.LocalDate
-import java.time.LocalTime
-import java.util.UUID
-
-data class EntryEditorState(
-    val draft: Draft,
-    val saving: Boolean = false,
-    val saved: Boolean = true,
-    val error: Int? = null,
-)
 
 data class BookState(
     val loading: Boolean = true,
@@ -54,17 +40,12 @@ data class BookState(
     val categories: List<Category> = emptyList(),
     val tags: List<Tag> = emptyList(),
     val templates: List<EntryTemplate> = emptyList(),
-    val entries: List<SavedEntry> = emptyList(),
-    val trashed: List<SavedEntry> = emptyList(),
     val relatedEntries: List<SavedEntry> = emptyList(),
     val relatedNext: LedgerCursor? = null,
     val relatedQuery: String = "",
     val relatedLoading: Boolean = false,
     val relatedError: Int? = null,
-    val searchEntries: List<SavedEntry> = emptyList(),
-    val searchNext: LedgerCursor? = null,
-    val drafts: List<Draft> = emptyList(),
-    val incompleteDrafts: List<Draft> = emptyList(),
+    val incompleteRecords: List<IncompleteRecord> = emptyList(),
     val incompleteCount: Int = 0,
     val affectedIncomplete: Map<String, Int> = emptyMap(),
     val totals: List<CurrencyTotals> = emptyList(),
@@ -72,124 +53,135 @@ data class BookState(
 )
 
 internal class BookViewModel(
-    private val storage: FinancialStorage,
+    private val openBook: suspend () -> moe.frost.kochenite.domain.ledger.LedgerResult<moe.frost.kochenite.domain.ledger.BookServices>,
 ) : ViewModel() {
     private val mutable = MutableStateFlow(BookState())
-    val state = mutable.asStateFlow()
-    private val mutableEditor = MutableStateFlow<EntryEditorState?>(null)
-    val editor = mutableEditor.asStateFlow()
     private val mutableDetail = MutableStateFlow<SavedEntry?>(null)
     val detail = mutableDetail.asStateFlow()
-    private val editorMutex = Mutex()
-    private var editorSaveJob: Job? = null
     private var relatedSearchJob: Job? = null
-    private var persistedDraft: Draft? = null
-    private val completed = Channel<Unit>(Channel.BUFFERED)
+    private var detailJob: Job? = null
+    private val completed = Channel<String>(Channel.BUFFERED)
     val saved = completed.receiveAsFlow()
-    private var ledger: RoomLedger? = null
-    private var activeFilter = LedgerFilter()
-    val searchFilter: LedgerFilter get() = activeFilter
+    private var bookServices: moe.frost.kochenite.domain.ledger.BookServices? = null
+    val accountManagement =
+        AccountStateOwner(
+            viewModelScope,
+            { bookServices?.accounts },
+            { mutable.value.saving },
+            { activeRouteId },
+        ) { origin, postedEntry ->
+            reload(if (postedEntry) ENTRY_PARTS else setOf(Part.ACCOUNTS))
+            if (origin != null) completed.send(origin)
+        }
+    val state =
+        combine(mutable, accountManagement.state) { book, accounts ->
+            book.copy(
+                accounts = accounts.accounts,
+                groups = accounts.groups,
+                saving = book.saving || accounts.saving,
+                error = accounts.error ?: book.error,
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, BookState())
+    val transactionList =
+        moe.frost.kochenite.transactions.list
+            .TransactionListStateOwner(viewModelScope, { bookServices?.reader })
+    val transactionEditor =
+        moe.frost.kochenite.transactions.editor.TransactionEditorStateOwner(
+            viewModelScope,
+            { bookServices?.editor },
+            { bookServices?.reader },
+            {
+                accountManagement.state.value.accounts
+                    .map { it.account }
+            },
+            ::error,
+        ) { saved ->
+            if (saved != null && mutableDetail.value?.id == saved.id) mutableDetail.value = saved
+            // A posted save may complete an incomplete record; saving an incomplete record posts nothing.
+            reload(if (saved != null) ENTRY_PARTS + Part.INCOMPLETE else setOf(Part.INCOMPLETE))
+        }
+    var activeRouteId: String? = null
 
     init {
         refresh()
     }
 
-    private fun failure(result: LedgerResult<*>): Int =
-        when (result) {
-            LedgerResult.Conflict -> {
-                R.string.conflict_message
-            }
+    /** Book state a mutation can change; [reload] queries only the requested parts. */
+    internal enum class Part { SETTINGS, ACCOUNTS, CATEGORIES, TAGS, TEMPLATES, INCOMPLETE, TOTALS, LEDGER }
 
-            LedgerResult.TemporarilyUnavailable -> {
-                R.string.unavailable
-            }
-
-            LedgerResult.RecoveryRequired -> {
-                R.string.recovery
-            }
-
-            is LedgerResult.Invalid -> {
-                when (result.reason) {
-                    moe.frost.kochenite.domain.ledger.InvalidReason.CURRENCY -> R.string.currency_locked_error
-                    moe.frost.kochenite.domain.ledger.InvalidReason.CATEGORY -> R.string.category_error
-                    moe.frost.kochenite.domain.ledger.InvalidReason.OVERFLOW -> R.string.overflow_error
-                    else -> R.string.correct_fields
-                }
-            }
-
-            else -> {
-                R.string.correct_fields
-            }
-        }
-
-    private suspend fun reload() {
-        val opened = ledger?.let { LedgerResult.Success(it) } ?: storage.open()
+    private suspend fun reload(parts: Set<Part> = ALL_PARTS) {
+        val opened = bookServices?.let { LedgerResult.Success(it) } ?: openBook()
         if (opened !is LedgerResult.Success) {
             mutable.value = mutable.value.copy(loading = false, error = failure(opened))
             return
         }
-        val book = opened.value.also { ledger = it }
-        val accounts = book.accountRepository.list()
-        val groups = book.accountRepository.groups()
-        val categories = book.categoryRepository.list()
-        val tags = book.tagRepository.list()
-        val templates = book.templates()
-        val settings = book.settingsRepository.get()
-        val entries = book.page()
-        val trashed = book.page(EntryStatus.TRASH)
-        val queryFilter = activeFilter
-        val searched = book.search(queryFilter)
-        val drafts = book.drafts()
-        val incomplete = book.incompleteDrafts()
-        val today = LocalDate.now()
-        val totals = book.totals(today.withDayOfMonth(1), today)
+        val book = opened.value.also { bookServices = it }
+        // Partial reloads apply only to a book that has loaded completely once.
+        val load = if (mutable.value.storageReady) parts else ALL_PARTS
+
+        suspend fun <T> part(
+            part: Part,
+            query: suspend () -> LedgerResult<T>,
+        ): LedgerResult<T>? = if (part in load) query() else null
+        val accounts = part(Part.ACCOUNTS) { book.accounts.list() }
+        val groups = part(Part.ACCOUNTS) { book.accounts.groups() }
+        val categories = part(Part.CATEGORIES) { book.categories.list() }
+        val tags = part(Part.TAGS) { book.tags.list() }
+        val templates = part(Part.TEMPLATES) { book.templates.templates() }
+        val settings = part(Part.SETTINGS) { book.settings.get() }
+        val incomplete = part(Part.INCOMPLETE) { book.reader.incompleteRecords() }
+        val totals =
+            part(Part.TOTALS) {
+                val today = LocalDate.now()
+                book.reader.totals(today.withDayOfMonth(1), today)
+            }
         val failed =
-            listOf(
+            listOfNotNull(
                 accounts,
                 groups,
                 categories,
                 tags,
                 templates,
                 settings,
-                entries,
-                trashed,
-                searched,
-                drafts,
                 incomplete,
                 totals,
             ).firstOrNull { it !is LedgerResult.Success }
         if (failed != null) {
             mutable.value = mutable.value.copy(loading = false, error = failure(failed))
-        } else {
-            val currentSearch = if (queryFilter == activeFilter) (searched as LedgerResult.Success).value else null
-            mutable.value =
-                BookState(
-                    loading = false,
-                    storageReady = true,
-                    saving = mutable.value.saving,
-                    settings = (settings as LedgerResult.Success).value,
-                    accounts = (accounts as LedgerResult.Success).value,
-                    groups = (groups as LedgerResult.Success).value,
-                    categories = (categories as LedgerResult.Success).value,
-                    tags = (tags as LedgerResult.Success).value,
-                    templates = (templates as LedgerResult.Success).value,
-                    entries = (entries as LedgerResult.Success).value.entries,
-                    trashed = (trashed as LedgerResult.Success).value.entries,
-                    searchEntries = currentSearch?.entries ?: mutable.value.searchEntries,
-                    searchNext = if (currentSearch != null) currentSearch.next else mutable.value.searchNext,
-                    drafts = (drafts as LedgerResult.Success).value,
-                    incompleteCount = (incomplete as LedgerResult.Success).value.size,
-                    incompleteDrafts = incomplete.value,
-                    affectedIncomplete =
-                        incomplete
-                            .value
-                            .flatMap { listOfNotNull(it.input.accountId, it.input.destinationAccountId).distinct() }
-                            .groupingBy { it }
-                            .eachCount(),
-                    totals = (totals as LedgerResult.Success).value,
-                )
-            if (queryFilter != activeFilter) search(activeFilter)
+            return
         }
+        if (accounts != null && groups != null) {
+            accountManagement.replace((accounts as LedgerResult.Success).value, (groups as LedgerResult.Success).value)
+        }
+        var next = mutable.value.copy(loading = false, storageReady = true)
+        settings?.let { next = next.copy(settings = (it as LedgerResult.Success).value) }
+        categories?.let { next = next.copy(categories = (it as LedgerResult.Success).value) }
+        tags?.let { next = next.copy(tags = (it as LedgerResult.Success).value) }
+        templates?.let { next = next.copy(templates = (it as LedgerResult.Success).value) }
+        totals?.let { next = next.copy(totals = (it as LedgerResult.Success).value) }
+        incomplete?.let {
+            val records = (it as LedgerResult.Success).value
+            next =
+                next.copy(
+                    incompleteCount = records.size,
+                    incompleteRecords = records,
+                    affectedIncomplete =
+                        records
+                            .flatMap { record ->
+                                listOfNotNull(record.editor.input.accountId, record.editor.input.destinationAccountId).distinct()
+                            }.groupingBy { id -> id }
+                            .eachCount(),
+                )
+        }
+        mutable.value = next.copy(error = null)
+        if (Part.LEDGER in load) transactionList.refresh()
+    }
+
+    private companion object {
+        val ALL_PARTS = Part.entries.toSet()
+
+        /** Posting, trashing, restoring or purging an entry changes balances, month totals and ledger rows. */
+        val ENTRY_PARTS = setOf(Part.ACCOUNTS, Part.TOTALS, Part.LEDGER)
     }
 
     fun refresh() {
@@ -201,18 +193,24 @@ internal class BookViewModel(
     }
 
     fun clearError() {
+        accountManagement.clearError()
         mutable.value = mutable.value.copy(error = null)
     }
 
-    private fun mutate(block: suspend (RoomLedger) -> LedgerResult<*>) {
-        if (mutable.value.saving) return
-        val book = ledger ?: return
+    private fun mutate(
+        parts: Set<Part>,
+        closeOnSuccess: Boolean = true,
+        block: suspend (moe.frost.kochenite.domain.ledger.BookServices) -> LedgerResult<*>,
+    ) {
+        if (mutable.value.saving || accountManagement.state.value.saving) return
+        val book = bookServices ?: return
         mutable.value = mutable.value.copy(saving = true, error = null)
+        val origin = activeRouteId
         viewModelScope.launch {
             val result = block(book)
             if (result is LedgerResult.Success) {
-                reload()
-                completed.send(Unit)
+                reload(parts)
+                if (closeOnSuccess && origin != null) completed.send(origin)
             } else {
                 mutable.value = mutable.value.copy(error = failure(result))
             }
@@ -225,72 +223,37 @@ internal class BookViewModel(
         opening: Long,
         display: BookCurrency,
         starter: Boolean,
-    ) = mutate {
-        it.settingsRepository.finishSetup(account, opening, display, starter)
+    ) = mutate(ALL_PARTS) {
+        it.settings.finishSetup(account, opening, display, starter)
     }
 
-    fun saveAccount(
-        account: Account,
-        old: Account?,
-        opening: Long?,
-    ) = mutate { it.accountRepository.save(account, old, opening) }
-
+    // Reparenting changes which entries a parent-category filter matches.
     fun saveCategory(
         category: Category,
         old: Category?,
-    ) = mutate { it.categoryRepository.save(category, old) }
+    ) = mutate(setOf(Part.CATEGORIES, Part.LEDGER)) { it.categories.save(category, old) }
 
     fun saveTag(
         tag: Tag,
         old: Tag?,
-    ) = mutate { it.tagRepository.save(tag, old) }
+    ) = mutate(setOf(Part.TAGS)) { it.tags.save(tag, old) }
 
-    fun saveTemplate(template: EntryTemplate) = mutate { it.saveTemplate(template) }
+    fun saveTemplate(template: EntryTemplate) = mutate(setOf(Part.TEMPLATES)) { it.templates.saveTemplate(template) }
 
-    fun deleteTemplate(id: String) = mutate { it.deleteTemplate(id) }
+    fun deleteTemplate(id: String) = mutate(setOf(Part.TEMPLATES)) { it.templates.deleteTemplate(id) }
 
     fun bulkCategorize(
         selections: List<AllocationSelection>,
         categoryId: String?,
     ) {
-        if (mutable.value.saving) return
-        val book = ledger ?: return
+        if (mutable.value.saving || accountManagement.state.value.saving) return
+        val book = bookServices ?: return
         mutable.value = mutable.value.copy(saving = true, error = null)
         viewModelScope.launch {
-            val result = book.bulkCategorize(selections, categoryId)
-            if (result is LedgerResult.Success) reload() else mutable.value = mutable.value.copy(error = failure(result))
+            val result = book.bulkCategories.bulkCategorize(selections, categoryId)
+            // Bulk categorization changes allocation categories and entry tokens, not balances or currency totals.
+            if (result is LedgerResult.Success) reload(setOf(Part.LEDGER)) else mutable.value = mutable.value.copy(error = failure(result))
             mutable.value = mutable.value.copy(saving = false)
-        }
-    }
-
-    fun search(filter: LedgerFilter) {
-        activeFilter = filter
-        viewModelScope.launch {
-            val result = ledger?.search(filter) ?: return@launch
-            if (filter != activeFilter) return@launch
-            if (result is LedgerResult.Success) {
-                mutable.value = mutable.value.copy(searchEntries = result.value.entries, searchNext = result.value.next)
-            } else {
-                mutable.value = mutable.value.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun loadMoreSearch() {
-        val cursor = mutable.value.searchNext ?: return
-        val filter = activeFilter
-        viewModelScope.launch {
-            val result = ledger?.search(filter, cursor) ?: return@launch
-            if (filter != activeFilter) return@launch
-            if (result is LedgerResult.Success) {
-                mutable.value =
-                    mutable.value.copy(
-                        searchEntries = mutable.value.searchEntries + result.value.entries,
-                        searchNext = result.value.next,
-                    )
-            } else {
-                mutable.value = mutable.value.copy(error = failure(result))
-            }
         }
     }
 
@@ -298,15 +261,15 @@ internal class BookViewModel(
         text: String,
         referencedIds: List<String>,
     ) {
-        val book = ledger ?: return
+        val book = bookServices ?: return
         relatedSearchJob?.cancel()
         mutable.value = mutable.value.copy(relatedQuery = text, relatedLoading = true, relatedError = null)
         relatedSearchJob =
             viewModelScope.launch {
-                val result = book.search(LedgerFilter(status = EntryStatus.POSTED, text = text))
+                val result = book.reader.search(LedgerFilter(status = EntryStatus.POSTED, text = text))
                 val referenced =
                     referencedIds.mapNotNull { id ->
-                        (book.entry(id) as? LedgerResult.Success)?.value
+                        (book.reader.entry(id) as? LedgerResult.Success)?.value
                     }
                 if (mutable.value.relatedQuery != text) return@launch
                 if (result is LedgerResult.Success) {
@@ -323,14 +286,14 @@ internal class BookViewModel(
     }
 
     fun loadMoreRelatedEntries() {
-        val book = ledger ?: return
+        val book = bookServices ?: return
         val cursor = mutable.value.relatedNext ?: return
         val query = mutable.value.relatedQuery
         mutable.value = mutable.value.copy(relatedLoading = true, relatedError = null)
         relatedSearchJob?.cancel()
         relatedSearchJob =
             viewModelScope.launch {
-                val result = book.search(LedgerFilter(status = EntryStatus.POSTED, text = query), cursor)
+                val result = book.reader.search(LedgerFilter(status = EntryStatus.POSTED, text = query), cursor)
                 if (mutable.value.relatedQuery != query) return@launch
                 if (result is LedgerResult.Success) {
                     mutable.value =
@@ -345,266 +308,36 @@ internal class BookViewModel(
             }
     }
 
-    fun saveGroup(
-        group: AccountGroup,
-        old: AccountGroup?,
-    ) = mutate { it.accountRepository.saveGroup(group, old) }
+    fun display(currency: BookCurrency) = mutate(setOf(Part.SETTINGS)) { it.settings.setDisplayCurrency(currency) }
 
-    fun display(currency: BookCurrency) = mutate { it.settingsRepository.setDisplayCurrency(currency) }
-
-    fun adjust(
-        accountId: String,
-        amount: Long,
-        note: String,
-    ) = mutate {
-        it.accountRepository.adjust(accountId, amount, LocalDate.now(), LocalTime.now(), note)
-    }
-
-    fun openDraft(id: String) {
-        if (mutableEditor.value?.draft?.id == id) return
-        viewModelScope.launch {
-            val book = ledger ?: return@launch
-            val existing = book.draft(id)
-            val result =
-                if (existing == LedgerResult.Missing) {
-                    val accountId =
-                        mutable.value.accounts
-                            .firstOrNull { !it.account.archived }
-                            ?.account
-                            ?.id ?: return@launch
-                    val input = EntryInput(EntryKind.EXPENSE, LocalDate.now(), LocalTime.now().withNano(0), accountId, null)
-                    book.saveDraft(Draft(id, UUID.randomUUID().toString(), "", input, amountText = ""), null)
-                } else {
-                    existing
-                }
-            if (result is LedgerResult.Success) {
-                if (mutableEditor.value != null) return@launch
-                persistedDraft = result.value
-                mutableEditor.value = EntryEditorState(result.value)
-                reload()
-            } else {
-                mutable.value = mutable.value.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun startEdit(
-        entryId: String,
-        navigate: (String) -> Unit,
-    ) {
-        viewModelScope.launch {
-            val result = ledger?.beginEdit(entryId) ?: return@launch
-            if (result is LedgerResult.Success) {
-                persistedDraft = result.value
-                mutableEditor.value = EntryEditorState(result.value)
-                reload()
-                navigate(result.value.id)
-            } else {
-                mutable.value = mutable.value.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun copyEntry(
-        entryId: String,
-        navigate: (String) -> Unit,
-    ) {
-        viewModelScope.launch {
-            val result = ledger?.copyEntry(entryId) ?: return@launch
-            if (result is LedgerResult.Success) {
-                persistedDraft = result.value
-                mutableEditor.value = EntryEditorState(result.value)
-                reload()
-                navigate(result.value.id)
-            } else {
-                mutable.value = mutable.value.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun applyTemplate(
+    fun deleteIncomplete(
         id: String,
-        navigate: (String) -> Unit,
-    ) {
-        viewModelScope.launch {
-            val result = ledger?.applyTemplate(id) ?: return@launch
-            if (result is LedgerResult.Success) {
-                persistedDraft = result.value
-                mutableEditor.value = EntryEditorState(result.value)
-                reload()
-                navigate(result.value.id)
-            } else {
-                mutable.value = mutable.value.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun startLinkedRefund(
-        purchase: SavedEntry,
-        allocationId: String,
-        navigate: (String) -> Unit,
-    ) {
-        val allocation = purchase.input.allocations.find { it.id == allocationId } ?: return
-        val account =
-            mutable.value.accounts
-                .find { it.account.id == purchase.input.accountId }
-                ?.account ?: return
-        viewModelScope.launch {
-            val input =
-                EntryInput(
-                    EntryKind.EXPENSE,
-                    LocalDate.now(),
-                    LocalTime.now().withNano(0),
-                    account.id,
-                    allocation.amountMinor,
-                    allocations = listOf(Allocation(UUID.randomUUID().toString(), allocation.amountMinor, allocation.categoryId)),
-                    merchant = purchase.input.merchant,
-                    note =
-                        purchase.input.receiptLines
-                            .find { it.id == allocationId }
-                            ?.description
-                            .orEmpty(),
-                    relatedEntryIds = listOf(purchase.id),
-                )
-            val draft =
-                Draft(
-                    UUID.randomUUID().toString(),
-                    UUID.randomUUID().toString(),
-                    "",
-                    input,
-                    amountText = account.currency.formatMinor(allocation.amountMinor),
-                )
-            val result = ledger?.saveDraft(draft, null) ?: return@launch
-            if (result is LedgerResult.Success) {
-                persistedDraft = result.value
-                mutableEditor.value = EntryEditorState(result.value)
-                reload()
-                navigate(result.value.id)
-            } else {
-                mutable.value = mutable.value.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun saveIncompleteEditor(onSaved: () -> Unit) {
-        val current = mutableEditor.value?.draft ?: return
-        val unknown = current.input.amountMinor == null || (current.input.kind == EntryKind.TRANSFER && current.input.receivedMinor == null)
-        if (!unknown) {
-            mutableEditor.value = mutableEditor.value?.copy(error = R.string.incomplete_requires_unknown)
-            return
-        }
-        updateEditor { it.copy(incomplete = true) }
-        closeEditor(onSaved)
-    }
+        token: String,
+    ) = mutate(setOf(Part.INCOMPLETE), closeOnSuccess = false) { it.editor.deleteIncomplete(id, token) }
 
     fun openDetail(id: String) {
         mutableDetail.value = null
-        viewModelScope.launch {
-            val result = ledger?.entry(id) ?: return@launch
-            if (result is LedgerResult.Success) {
-                mutableDetail.value = result.value
-            } else {
-                mutable.value =
-                    mutable.value.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun trashEntry(entry: SavedEntry) = mutate { it.trash(entry.id, entry.token) }
-
-    fun restoreEntry(entry: SavedEntry) = mutate { it.restore(entry.id, entry.token) }
-
-    fun purgeEntry(entry: SavedEntry) = mutate { it.purge(entry.id, entry.token) }
-
-    fun updateEditor(change: (Draft) -> Draft) {
-        val old = mutableEditor.value ?: return
-        val changed = change(old.draft)
-        val complete =
-            changed.input.amountMinor != null && (changed.input.kind != EntryKind.TRANSFER || changed.input.receivedMinor != null)
-        mutableEditor.value = old.copy(draft = if (complete) changed.copy(incomplete = false) else changed, saved = false, error = null)
-        editorSaveJob?.cancel()
-        editorSaveJob =
+        detailJob?.cancel()
+        detailJob =
             viewModelScope.launch {
-                delay(300)
-                persistEditor()
+                val result = bookServices?.reader?.entry(id) ?: return@launch
+                if (result is LedgerResult.Success) {
+                    mutableDetail.value = result.value
+                    val reader = bookServices?.reader ?: return@launch
+                    val related =
+                        result.value.input.relatedEntryIds
+                            .mapNotNull { (reader.entry(it) as? LedgerResult.Success)?.value }
+                    mutable.value = mutable.value.copy(relatedEntries = related)
+                } else {
+                    mutable.value =
+                        mutable.value.copy(error = failure(result))
+                }
             }
     }
 
-    private suspend fun persistEditor(): Boolean =
-        editorMutex.withLock {
-            val book = ledger ?: return@withLock false
-            val current = mutableEditor.value ?: return@withLock false
-            val previous = persistedDraft ?: return@withLock false
-            if (current.draft.copy(token = previous.token) == previous) {
-                mutableEditor.value = current.copy(saved = true, saving = false)
-                return@withLock true
-            }
-            mutableEditor.value = current.copy(saving = true, error = null)
-            val result = book.saveDraft(current.draft.copy(token = previous.token), previous.token)
-            if (result is LedgerResult.Success) {
-                persistedDraft = result.value
-                val latest = mutableEditor.value ?: return@withLock true
-                val updated = latest.draft.copy(token = result.value.token)
-                val clean = updated == result.value
-                mutableEditor.value = latest.copy(draft = updated, saved = clean, saving = false)
-                reload()
-                true
-            } else {
-                mutableEditor.value = mutableEditor.value?.copy(saving = false, saved = false, error = failure(result))
-                false
-            }
-        }
+    fun trashEntry(entry: SavedEntry) = mutate(ENTRY_PARTS) { it.editor.trash(entry.id, entry.token) }
 
-    fun closeEditor(onSaved: () -> Unit) {
-        viewModelScope.launch {
-            editorSaveJob?.cancelAndJoin()
-            if (persistEditor()) {
-                mutableEditor.value = null
-                persistedDraft = null
-                onSaved()
-            }
-        }
-    }
+    fun restoreEntry(entry: SavedEntry) = mutate(ENTRY_PARTS) { it.editor.restore(entry.id, entry.token) }
 
-    fun discardEditor(onDiscarded: () -> Unit) {
-        viewModelScope.launch {
-            editorSaveJob?.cancelAndJoin()
-            val current = persistedDraft ?: return@launch
-            val result = ledger?.discardDraft(current.id, current.token) ?: return@launch
-            if (result is LedgerResult.Success) {
-                mutableEditor.value = null
-                persistedDraft = null
-                reload()
-                onDiscarded()
-            } else {
-                mutableEditor.value = mutableEditor.value?.copy(error = failure(result))
-            }
-        }
-    }
-
-    fun confirmEditor() {
-        viewModelScope.launch {
-            editorSaveJob?.cancelAndJoin()
-            if (!persistEditor()) return@launch
-            val current = persistedDraft ?: return@launch
-            val badDate = current.dateText?.let { runCatching { LocalDate.parse(it) }.isFailure } ?: false
-            val badTime = current.timeText?.let { runCatching { LocalTime.parse(it) }.isFailure } ?: false
-            val merchantContext = !current.merchantAmountText.isNullOrBlank() || !current.merchantCurrencyText.isNullOrBlank()
-            val badMerchantContext = merchantContext && current.input.merchantAmount == null
-            if (badDate || badTime || badMerchantContext) {
-                mutableEditor.value = mutableEditor.value?.copy(error = R.string.correct_fields)
-                return@launch
-            }
-            val result = ledger?.confirm(current.id, current.token) ?: return@launch
-            if (result is LedgerResult.Success) {
-                mutableEditor.value = null
-                persistedDraft = null
-                if (mutableDetail.value?.id == result.value.id) mutableDetail.value = result.value
-                reload()
-                completed.send(Unit)
-            } else {
-                mutableEditor.value = mutableEditor.value?.copy(error = failure(result))
-            }
-        }
-    }
+    fun purgeEntry(entry: SavedEntry) = mutate(ENTRY_PARTS) { it.editor.purge(entry.id, entry.token) }
 }

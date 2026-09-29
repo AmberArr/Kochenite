@@ -11,6 +11,9 @@ val releaseSigning =
     Properties().apply {
         if (releaseSigningFile.isFile) releaseSigningFile.inputStream().use { load(it) }
     }
+// The Sentry DSN only permits event submission; it is not a credential.
+val sentryDsn = providers.gradleProperty("kocheniteSentryDsn").orElse("").get()
+
 android {
     namespace = "moe.frost.kochenite"
     compileSdk = 36
@@ -28,6 +31,7 @@ android {
         versionName = "0.1.$versionCode"
         testApplicationId = "moe.frost.kochenite.debug.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "SENTRY_DSN", "\"\"")
     }
     signingConfigs {
         if (releaseSigningFile.isFile) {
@@ -40,15 +44,25 @@ android {
         }
     }
     buildTypes {
-        debug { applicationIdSuffix = ".debug" }
+        debug {
+            applicationIdSuffix = ".debug"
+            // Debug builds run synthetic device tests; report them only when explicitly requested.
+            if (providers.gradleProperty("kocheniteSentryDebug").orNull == "true") {
+                buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -64,6 +78,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation:1.11.2")
     implementation("androidx.compose.material3:material3:1.5.0-alpha17")
     implementation(project(":persistence"))
+    // Core only: no native crash handler, session replay or automatic Gradle instrumentation.
+    implementation("io.sentry:sentry-android-core:8.58.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     androidTestImplementation("androidx.test:runner:1.7.0")

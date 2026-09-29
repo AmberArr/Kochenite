@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1 complete for the synthetic foundation. Gradle/plain Room, clean builds, eleven device assertions and signed release upgrade are verified. Phase 2 is in progress; milestones 2.0–2.6 and the authorized transaction UI/signed-entry update are verified. Reports and current-rate estimates (2.7) are next. Off-machine signing backup is still required before real bookkeeping use.
+Status: Phase 1's synthetic proof is historically verified; its sample app and database code were retired from active source on 2026-09-26. Earlier Phase 2 milestones and the signed-entry update are verified. The transaction editor's review fixes and feature restructuring pass host verification and 38 physical-device checks. Full visual acceptance and later performance/release gates remain pending. Off-machine signing backup is still required before real bookkeeping use.
 
 ## Goal and Agreed Decisions
 
@@ -20,6 +20,7 @@ Agreed choices:
 - Generic CSV import/export; no Bluecoins-specific migration promise.
 - The recognition demo is supplied in `receipt-ai-demo/a.js` and `receipt-ai-demo/prompt.txt`. It is a provider-integration reference, not a validated contract. Phase 3 retains deterministic fixtures and defines the provider contract then.
 - A possible Supabase Edge Function gateway with Supabase Auth is a later deployment option. A user-supplied recognition gateway without app sign-in is also deferred for later discussion.
+- Crash diagnostics (user decision, September 27, 2026): release builds send crash, ANR, session and app-start/frame performance diagnostics to the user's Sentry-compatible endpoint (`kocheniteSentryDsn` in `gradle.properties`). Events keep exception types and stack frames; exception messages, extras, request data, breadcrumb messages, screenshots, view hierarchies and replays are never sent, and financial records stay on the device. Bookkeeping never depends on the network. Unexpected and recovery-required storage faults are reported the same way. Debug builds send nothing unless built with `-PkocheniteSentryDebug=true`. Release R8 keeps shrinking but not obfuscation so traces stay readable without mapping uploads.
 - Use Git and make focused commits after verified milestones. Preserve the user's chosen `master` branch.
 
 ## Environment and Working Conventions
@@ -65,7 +66,7 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 
 ### Currencies and Financial Correctness
 
-- Preserve actual account-currency amounts and optional merchant amount/currency. Unknown actual amounts remain incomplete and excluded from balances/spending. Transfers with either side unknown remain wholly incomplete. Calendar date and local time are required; no transaction timezone is stored; future entries remain drafts.
+- Preserve actual account-currency amounts and optional transaction amount/currency. Unknown actual amounts may be explicitly saved under Incomplete and remain excluded from balances/spending. Transfers with either side unknown remain wholly incomplete. Calendar date and local time are required; no transaction timezone is stored; future dates are rejected when saving.
 - Cross-currency transfers record actual sent and received amounts, with fees recorded separately. Do not require nominal amounts in different currencies to sum to zero.
 - Store finalized monetary amounts as integer minor units with currency metadata. Use decimal arithmetic for quantities, unit prices, and exchange rates. Never use floating-point arithmetic for money.
 - Historical reports use authoritative amounts grouped by account currency, without historical display-currency conversion. Overview estimates current net worth and month-to-date income/spending/net flow only.
@@ -91,8 +92,8 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 
 - Generic CSV import includes column mapping, date/locale/currency selection, preview, validation, duplicate warnings, atomic batches, and undo.
 - Export transactions and subitems separately as CSV. CSV is not the full backup format.
-- Phase 2 manual backup exports one consistent plain SQLite snapshot containing all financial Room data, including drafts, trash, templates, settings and rate data; exclude foundation samples, signing keys, credentials and device permissions. Optional in-app reminders default to seven days.
-- Flush acknowledged drafts, pause mutations, checkpoint and close before staging the main database file; reopen normal storage, validate the snapshot and report success only after destination close.
+- Phase 2 manual backup exports one consistent plain SQLite snapshot containing all financial Room data, including posted/trash/incomplete records, templates, settings and rate data; exclude signing keys, credentials and device permissions. Optional in-app reminders default to seven days.
+- Pause mutations, checkpoint and close before staging the main database file; reopen normal storage, validate the snapshot and report success only after destination close.
 - Restore stages and migrates the selected file, validates schema/integrity/foreign keys/financial invariants, previews replacement and requires explicit confirmation. Import validated application-table contents in one transaction while retaining installed Room metadata; validate before commit and reset editors after success. Failure/cancellation before commit preserves current data. No mandatory pre-restore export, custom archive, encryption, generation switch or scheduler.
 - An unreadable active database is preserved and surfaces recovery-required; automatic salvage is outside scope. Signing-key backup is separate and still required before real use.
 - Initially use Android Storage Access Framework for file export/import. Direct Drive/OneDrive integration and synchronization semantics are deferred.
@@ -100,7 +101,7 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 ## User Experience
 
 - Phase 2 has four primary destinations: Overview, Transactions, Accounts, and Reports. Inbox is deferred to capture phases. Overview exposes budgets, bills, and goals; settings contains categories, templates, backups, and recognition configuration.
-- Persistent add action, amount-first transaction entry, recent selections, and autosaved drafts. Preserve filters, scroll positions, and unsaved work across navigation and process recreation.
+- Persistent add action and a compact Expense/Income/Transfer editor. Ordinary input stays in the ViewModel until Save; rotation retains it while that ViewModel survives, Back confirms discard only for changed input, and process termination loses it. Only explicitly saved incomplete records persist under Incomplete.
 - Material 3 with neutral light/dark surfaces, restrained teal accents, distinct chart colors, system typography, aligned monetary columns, and compact readable lists.
 - Use accessible icons, 48dp touch targets, text scaling, TalkBack semantics, edge-to-edge insets, keyboard-safe forms, and predictable back navigation. Do not rely on color alone.
 - Wider windows use navigation rails and list/detail layouts. Charts offer exact values and accessible textual/tabular alternatives.
@@ -111,8 +112,8 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 - Separate the Android app, pure Kotlin finance domain, Android persistence/platform services, and recognition contract. Organize features within these modules initially; avoid a module per screen.
 - Use ViewModels, StateFlow, coroutines, repository interfaces, and constructor injection with an explicit composition root.
 - Use Room with KSP2 and ordinary SQLite in private internal storage, plus DataStore for non-sensitive preferences. Do not introduce SQLCipher or a database passphrase/Keystore wrapping layer. Encrypted private attachment files remain later-phase work.
-- Core entities include accounts, transaction aggregates, account postings, allocations, receipt items, exchange-rate snapshots, drafts, source events, attachments, schedules, budgets, and import batches. Use stable identifiers for references and deduplication.
-- A single transactional posting service validates and writes each aggregate. Editing updates its postings and allocations atomically. Replace the current aggregate atomically; no revision history or version restoration. Durable edit drafts keep the original effective until successful replacement and compare the starting record within the write transaction to reject stale edits.
+- Core entities include accounts, transaction aggregates, account postings, allocations, receipt items, exchange-rate snapshots, explicitly saved incomplete records, recognition/source-event drafts, attachments, schedules, budgets, and import batches. Use stable identifiers for references and deduplication.
+- A single transactional posting service validates and writes each aggregate directly on Save. Editing replaces postings, allocations, items and references atomically, compares the expected posted-record token, and leaves the original effective on failure. Explicit incomplete records have token-checked read/save/delete operations; completion consumes the record in the same posting transaction. No ordinary manual editor drafts or recovery payloads are stored.
 - Trash excludes records from calculations and supports manual restoration/permanent purge, with no automatic purge. Purging a purchase detaches surviving refunds without changing their amounts. Editing reconciled records requires confirmation and renewed reconciliation.
 - Use CameraX for capture, Photo Picker/share intents for images, WorkManager for durable recognition/retry and maintenance, and NotificationListenerService for explicitly selected sources.
 - Keep financial arithmetic and notification parsing independent of Android for JVM testing.
@@ -160,12 +161,13 @@ Preserve the recognition contract for a possible Supabase Edge Function deployme
 
 ## Implementation Phases and Exit Criteria
 
-Phase 1 is verified. Complete and verify each phase before moving on; commit coherent verified increments within phases.
+Phase 1 is historically verified and its synthetic proof harness has been retired. Complete and verify each phase before moving on; commit coherent verified increments within phases.
 
 ### Phase 1: Foundation and Toolchain Proof
 
-Status: complete for synthetic data. See the [Phase 1 plan](phases/01-foundation.md)
-for deliverables, exit criteria and current limitations; the
+Status: historically complete for synthetic data; the sample proof app and
+database are retired from active code. See the [Phase 1 plan](phases/01-foundation.md)
+for its deliverables, historical evidence and coverage limits; the
 [worklog](../worklogs/01-foundation.md#final-foundation-evidence) contains verification
 results. Off-machine signing backup remains required before real use.
 
@@ -173,19 +175,20 @@ results. Off-machine signing backup remains required before real use.
 - Deliver the Compose foundation, plain Room persistence and migrations,
   non-destructive failure handling, repeatable tests and signed release upgrades.
 - IDs: release `moe.frost.kochenite`, debug `moe.frost.kochenite.debug`.
-  Keep `foundation-proof.db` separate from the Phase 2 financial schema.
+  The active app uses the Phase 2 financial schema; it does not open or migrate
+  the retired `foundation-proof.db`.
 - Exit: the detailed phase criteria have evidence, including physical-device
   instrumentation, repeat clean builds, signing continuity and native packaging.
   API 35/4 KB coverage does not establish other OS or 16 KB runtime support.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
-Status: in progress. Milestones 2.0–2.6 and the authorized transaction UI/signed-entry update are verified; milestone 2.7 is next. See the [detailed milestones](phases/02-manual-bookkeeping.md),
+Status: in progress. Earlier milestones 2.0–2.6 and the signed-entry update are verified. The authorized transaction editor redesign passes host verification and instrumentation builds; review findings and full device verification remain outstanding. See the [detailed milestones](phases/02-manual-bookkeeping.md),
 [financial examples](../../docs/financial-rules.md) and [worklog](../worklogs/02-manual-bookkeeping.md).
 
-- Deliver milestones 2.0–2.9 in order: decisions, kernel/storage, setup/accounts/categories, basic entry/drafts/trash, transfers/incomplete/refunds, receipt lines/splits, search/tags/templates/bulk categories, reports/rates, plain SQLite backup/restore, release validation.
+- Deliver milestones 2.0–2.9 in order: decisions, kernel/storage, setup/accounts/categories, basic entry/editing/trash, transfers/incomplete/credits, receipt lines/splits, search/tags/templates/bulk categories, reports/rates, plain SQLite backup/restore, release validation.
 - Deferred from this phase: attachments/acquisition, recognition, tax shortcuts and persistent tax/quantity/unit-price models, discounts/coupons/points, reconciliation, budgets/schedules, specialized debts, CSV, merchant/tag summary reports, historical balance charts, encrypted/automatic backups, transaction history, automatic purge and biometric lock.
-- Exit: verified offline manual ledger, exact calculations, durable drafts, safe plain SQLite recovery, physical-device/release upgrade/performance evidence and off-machine signing-key recovery check. Synthetic data only until that gate passes.
+- Exit: verified offline manual ledger, exact calculations, explicit incomplete-record behavior, safe plain SQLite recovery, physical-device/release upgrade/performance evidence and off-machine signing-key recovery check. Synthetic data only until that gate passes.
 
 ### Phase 3: Receipt Capture
 
@@ -237,8 +240,9 @@ The initial product is a personal sideloaded Android app with one local book con
 
 Read this file, the Phase 2 plan and its latest worklog entries. Continue the next
 incomplete milestone in order and verify its exit criteria before the next.
-Reuse the separate foundation's build, preserving storage factory, instrumentation
-and signing workflow; never migrate `foundation-proof.db` into financial storage.
+Reuse the established Gradle build, preserving SQLite factory, financial
+instrumentation and signing workflow. The retired Phase 1 proof database is not
+part of financial storage.
 Preserve unrelated user files and the existing signing identity. Off-machine
 signing-key backup and recovery remain required before real use. Recognition
 fixtures and provider-contract design remain Phase 3 work.

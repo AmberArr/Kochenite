@@ -34,11 +34,15 @@ try {
   result.stage = 'financial-storage';
   const output = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.FinancialStorageDeviceTest', runner], 120_000);
-  result.completedTests = completedTests(output, 23);
+  result.completedTests = completedTests(output, 7);
+  result.stage = 'ledger-regressions';
+  const regressionOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+    'moe.frost.kochenite.persistence.ledger.LedgerRegressionDeviceTest', runner], 120_000);
+  result.completedTests += completedTests(regressionOutput, 14);
   result.stage = 'book-setup';
   const setupOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.BookSetupDeviceTest', runner], 120_000);
-  result.completedTests += completedTests(setupOutput, 5);
+  result.completedTests += completedTests(setupOutput, 7);
   if (ui) {
     result.stage = 'book-ui';
     const app = 'moe.frost.kochenite.debug';
@@ -48,16 +52,25 @@ try {
     adb(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
     const uiOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
       'moe.frost.kochenite.BookUiDeviceTest', uiRunner], 120_000);
-    result.completedTests += completedTests(uiOutput, 8);
-    result.stage = 'process-draft-create';
+    result.completedTests += completedTests(uiOutput, 9);
+    result.stage = 'process-unsaved-create';
+    const unsavedCreate = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+      'moe.frost.kochenite.BookEditorProcessDeviceTest#leaveUnsavedEditorInProcess', uiRunner], 120_000);
+    result.completedTests += completedTests(unsavedCreate, 1);
+    adb(['shell', 'am', 'force-stop', app]);
+    result.stage = 'process-unsaved-verify';
+    const unsavedVerify = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+      'moe.frost.kochenite.BookEditorProcessDeviceTest#verifyUnsavedEditorLostAfterRestart', uiRunner], 120_000);
+    result.completedTests += completedTests(unsavedVerify, 1);
+    result.stage = 'process-incomplete-create';
     const createOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
-      'moe.frost.kochenite.BookProcessDeviceTest#createAcknowledgedDraft', uiRunner], 120_000);
+      'moe.frost.kochenite.BookProcessDeviceTest#createExplicitIncompleteRecord', uiRunner], 120_000);
     result.completedTests += completedTests(createOutput, 1);
     result.stage = 'process-restart';
     adb(['shell', 'am', 'force-stop', app]);
-    result.stage = 'process-draft-verify';
+    result.stage = 'process-incomplete-verify';
     const verifyOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
-      'moe.frost.kochenite.BookProcessDeviceTest#verifyAfterProcessRestart', uiRunner], 120_000);
+      'moe.frost.kochenite.BookProcessDeviceTest#verifyExplicitIncompleteAfterProcessRestart', uiRunner], 120_000);
     result.completedTests += completedTests(verifyOutput, 1);
   }
   result.stage = 'complete';

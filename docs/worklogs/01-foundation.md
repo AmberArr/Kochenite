@@ -263,3 +263,25 @@ is preserved, all ten completed exit criteria remain and `git diff --check` is
 clean. No application build or device tests ran for this documentation change.
 Phase 2 planning remains the next action when authorized; the signing-backup
 prerequisite is unchanged.
+
+## September 22, 2026: Status and Architecture Review
+
+Reviewed the master/Phase 1 plans, implementation, storage tests, build and device
+scripts. Phase 1 remains a synthetic foundation; Phase 2 is not started. No
+application changes made. Findings: runtime observation failures lose their cause
+and all become recovery-required; the financial schema must define bookkeeping
+date semantics and bounded queries rather than inherit the sample's instant-only
+and full-table observation model. Phase 2 needs smaller verifiable milestones,
+an explicit attachment scope, and release recovery checks before real use.
+The empty recognition interface and foundation-specific APK/test assumptions
+should not become permanent architecture requirements. Off-machine signing backup
+remains outstanding. These are review recommendations, not accepted scope changes.
+
+Verification: `./gradlew verify` passed (six JVM tests, ten host script tests,
+Spotless and Android lint). Initial wrapper execution failed with a read-only
+lock file under `/home/amber/.local/share/gradle/wrapper/dists`; execution with
+approved access to the existing cache succeeded, without cache redirection.
+Standalone host script tests also passed; `git diff --check` passed before this
+entry. Physical-device tests and release upgrade tests were not rerun. Existing
+untracked `.codex/` and `receipt-ai-demo/` were preserved. Next action remains
+Phase 2 planning when authorized, incorporating the review decisions.

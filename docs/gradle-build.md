@@ -1,18 +1,20 @@
-# Foundation Build and Verification
+# Gradle Build and Verification
 
 Kochenite uses Gradle following the [Toolchain proof](toolchain-proof.md).
-The app accepts synthetic samples only. Plain Room/SQLite lives in private
-credential-protected storage; there is no SQLCipher or database-key layer.
-Android's sandbox and device encryption protect the files while that protection
-holds. Extracted database files are ordinary readable SQLite.
+The active app implements local financial bookkeeping and uses plain Room/SQLite
+in private credential-protected storage; there is no SQLCipher or database-key
+layer. Android's sandbox and device encryption protect files while that
+protection holds. Extracted database files are ordinary readable SQLite. Use
+synthetic records until the Phase 2 release and recovery gates are complete.
+The retired Phase 1 `foundation-proof.db` is no longer opened or migrated; any
+existing copy is left untouched.
 
 ## Structure and Versions
 
 - `app`: Compose UI, ViewModel, explicit composition root and Android variants.
 - `domain`: Android-independent Kotlin models and repository interfaces.
-- `persistence`: Room entities/DAO, migration, unlock-aware initialization and
-  non-destructive corruption handling. `foundation-proof.db` is a disposable
-  sample schema, separate from the future financial database.
+- `persistence`: financial Room entities/DAOs and migrations, unlock-aware
+  initialization and non-destructive corruption handling for `bookkeeping.db`.
 - `recognition-contract`: unimplemented boundary; design and fixtures wait for Phase 3.
 
 Pinned: Gradle 9.5.0, AGP 9.3.1 (built-in Android Kotlin), Kotlin/Compose compiler
@@ -40,10 +42,10 @@ are included. Generated build outputs, Room schemas, `.local`, user skills,
 ./gradlew verify
 ```
 
-`verify` combines Spotless, app/persistence Android Lint, domain/app JVM tests,
+`verify` combines Spotless, app/persistence Android Lint, domain JVM tests,
 recognition-boundary checks and host script tests. It needs the normal SDK/JDK
 and Node.js, but no connected phone or release signing key. It does not replace
-the explicit instrumentation and release journeys below.
+the financial instrumentation below.
 
 Enable the checked-in commit hook once per checkout, after checking for an existing
 `core.hooksPath` or custom `.git/hooks/pre-commit` that should be preserved:
@@ -62,6 +64,15 @@ include all formatter targets, so an untracked Kotlin source within a module can
 also produce a formatting failure. Hooks are local guardrails, not a replacement
 for running `verify` in CI when CI is introduced.
 
+### Crash Diagnostics
+
+Release builds embed `kocheniteSentryDsn` from `gradle.properties` and report
+through `sentry-android-core` (no native handler or replay). The DSN only
+allows event submission. `app/src/main/kotlin/Diagnostics.kt` owns the privacy
+options and scrubbing. Debug builds report only when built with
+`-PkocheniteSentryDebug=true`; rebuild without it before running device tests.
+The app requests `android.permission.INTERNET` for this purpose only.
+
 ### APKs and Devices
 
 Use the workspace root, installed SDK/JDK and default caches. Restore release
@@ -69,7 +80,7 @@ signing using [these instructions](release-signing.md) before release builds.
 No emulator is used. Run build invocations sequentially, including `clean`.
 
 ```sh
-./gradlew :domain:test :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :persistence:assembleDebugAndroidTest
+./gradlew :domain:test :app:assembleDebug :app:assembleDebugAndroidTest :persistence:assembleDebugAndroidTest
 ./gradlew :app:assembleRelease :app:lintDebug :persistence:lintDebug
 node --test scripts/instrumentation-result.test.mjs
 adb devices -l
@@ -83,29 +94,26 @@ reference device uses user 0; use the confirmed user on each install.
 adb -s "$ANDROID_SERIAL" install --user 0 -r app/build/outputs/apk/debug/app-debug.apk
 adb -s "$ANDROID_SERIAL" install --user 0 -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s "$ANDROID_SERIAL" install --user 0 -r persistence/build/outputs/apk/androidTest/debug/persistence-debug-androidTest.apk
-node scripts/run-device-tests.mjs "$ANDROID_SERIAL"
+node scripts/run-financial-tests.mjs "$ANDROID_SERIAL" --ui
 adb -s "$ANDROID_SERIAL" install --user 0 -r app/build/outputs/apk/release/app-release.apk
-node scripts/run-release-journey.mjs "$ANDROID_SERIAL"
 node scripts/check-apk.mjs app/build/outputs/apk/debug/app-debug.apk "$ANDROID_HOME" debug
 node scripts/check-apk.mjs app/build/outputs/apk/release/app-release.apk "$ANDROID_HOME" release
 ```
 
-Unlock the phone for UI tests. The instrumentation runner checks the exact app,
-test packages and instrumentation targets, uses bounded ADB calls, checks test
-counts and assertion statuses, and exits nonzero on failures. It first runs seven
-storage tests in the isolated library test package, then adds/recreates/checkpoints
-debug records, force-stops the debug app, verifies every field in a fresh process,
-and runs two presentation tests. It never clears app data. Test-only checkpoint
-and screenshot code exists exclusively in `androidTest`; the test Activity is a
-debug-only dependency. Release contains no testing controls.
+Unlock the phone for UI tests. The financial instrumentation runner verifies the
+storage test package and instrumentation targets, uses bounded ADB calls, checks
+test counts and assertion statuses, and exits nonzero on failures. It runs seven
+financial-storage tests, fourteen ledger regressions and six book-setup tests.
+With `--ui`, it also runs seven financial UI checks and four process checks for
+unsaved editor loss and explicitly saved incomplete survival. Storage tests create and delete random synthetic databases; UI tests use
+the separate debug app. The runner never clears app data.
 
-MigrationTestHelper creates the v1 fixture from the checked-in Room schema, seeds
-known exact values, validates migration to v2, then opens it twice. A separate
-test interrupts the migration after ALTER and verifies rollback and retry. Room
-callbacks interrupt initial creation inside its transaction; this models failure
-at that boundary, not physical power loss. Corruption tests prove byte retention
-across repeated failed opens; the SQLite factory replaces the default deleting
-corruption callback and disables data-loss recovery.
+Financial migration tests use checked-in Room schemas and `MigrationTestHelper`
+to verify exact-value preservation, rollback and retry. The v6→v7 migration
+retires legacy ordinary editor rows while preserving explicitly saved incomplete
+records. Corruption tests prove byte retention across repeated failed opens; the
+SQLite factory replaces the default deleting corruption callback and disables
+data-loss recovery.
 
 When updating the old Toolchain test APK only, a one-time `install -r -d` may be
 needed for `moe.frost.kochenite.debug.test` (AGP test version 0 replaces version 1).
@@ -113,27 +121,26 @@ Never downgrade or uninstall the retained release app to solve installation erro
 Historical encrypted `toolchain-probe.db` files and temporary release package
 `moe.frost.kochenite.debug.releaseproof` are not opened, reset or converted.
 
-## Release Upgrades and Evidence
+## Release Artifacts and Evidence
 
 Default release version is 2. Choose a code greater than the installed release
 for the next upgrade; e.g. version 3 after version 2:
 
 ```sh
 ./gradlew :app:assembleRelease -PreleaseVersionCode=3
-node scripts/run-release-journey.mjs "$ANDROID_SERIAL" --upgrade app/build/outputs/apk/release/app-release.apk "$ANDROID_HOME"
+node scripts/check-apk.mjs app/build/outputs/apk/release/app-release.apk "$ANDROID_HOME" release
 ```
 
-This adds a sample, restarts, validates the new APK's ID/signature/alignment and
-higher version, installs with `-r`, checks the retained count and visible sample
-amounts/dates, then restarts again. Exact IDs/all fields across process restart
-are checked by debug instrumentation; release verification uses the public UI.
-Do not run `clean` or rebuild while a runner is consuming an APK.
+The APK checker validates artifact identity, signature, alignment and debug
+isolation. It does not exercise persisted financial records in a release upgrade;
+that remains part of the Phase 2 release-validation gate. Do not run `clean` or
+rebuild while a runner is consuming an APK.
 
-Evidence stays in ignored `.local/foundation-evidence`: sanitized JSON summaries,
-app-only light/dark/2x text screenshots and the foreground release screenshot.
-No device logcat, credentials or financial records are saved. Test errors report
-only the stage and failure category; inspect individual synthetic test assertions
-locally when diagnosing a failure. Never capture other apps.
+Current financial verification evidence stays in ignored
+`.local/financial-evidence` as sanitized JSON summaries. No device logcat,
+credentials or financial records are saved. Test errors report only the stage
+and failure category. Historical Phase 1 evidence is linked from its archived
+[worklog](worklogs/01-foundation.md).
 
 ## Workspace Cleanup
 
@@ -142,36 +149,21 @@ project outputs. APKs and test reports under `build/` are regenerated by the
 commands above. Keep the default tool caches for subsequent builds.
 
 Keep `.local/signing`: its key and credentials are required for future release
-updates. Do not delete `.local` wholesale; it also contains retained screenshots,
-sanitized verification summaries and the historical proof signing identity.
-The APK checker automatically removes its temporary native-library extraction.
+updates. Do not delete `.local` wholesale; it also contains sanitized
+verification summaries and historical evidence. The APK checker automatically
+removes its temporary native-library extraction.
 Retired Toolchain module directories are no longer needed in the workspace;
 their sources remain in Git history. User skills, `.codex` configuration and the
 supplied recognition demo are separate from build output and must be preserved.
 
-## Verified Coverage
+## Historical Phase 1 Coverage
 
-- Clean project outputs rebuild debug, both instrumentation APKs and signed,
-  non-debuggable R8/resource-shrunk release. Six JVM and eleven device tests pass;
-  four host runner-parser tests pass. Repeatability is successful builds/behavior,
-  not byte-identical APKs. No custom R8 keep rules are needed.
-- OnePlus 6T, Android 15/API 35, 4096-byte pages: write/read/reopen, integrity,
-  rollback, migrations and failure retention, add/recreate/force-stop/relaunch,
-  and same-key release version 1-to-2 upgrade pass.
-- Light/dark/2x text screenshots reviewed, labelled clickable controls with 48dp
-  targets asserted, release status/navigation bar clearance inspected. Spoken
-  TalkBack interaction was not exercised; semantic labels/actions were checked.
-- Both APKs pass SDK/identity/debug isolation/signature, zipalign 16 KB mode and
-  ELF LOAD alignment on all four Compose graphics native libraries. SQLCipher
-  is absent. These static checks do not establish 16 KB runtime support.
-- Lint passes: 0 errors; 11 app/6 persistence warnings for intentionally pinned
-  API/dependency versions and the debug isolation marker. Clean builds report
-  that Compose's native library is packaged without additional symbol stripping.
-- Backup and device-transfer exclusions are declared; no camera, storage,
-  notification or other platform permissions are requested. AndroidX adds its
-  own signature-protected dynamic-receiver permission. Real OS restore/transfer
-  execution, other OS/device sizes, 16 KB runtime and Android Studio sync remain
-  unverified. Off-machine signing backup remains a prerequisite for real use.
+The earlier sample app, database and test harness passed the checks recorded in
+the [Phase 1 worklog](worklogs/01-foundation.md). Those checks remain historical
+evidence for the build/storage approach; they do not verify the active financial
+UI or its release-upgrade behavior. The current transaction-editor redesign has
+not been build- or device-verified yet. Off-machine signing backup remains a
+prerequisite for real use.
 
 Future recognition development will use
 `adb -s "$ANDROID_SERIAL" reverse tcp:8787 tcp:8787`; enable localhost cleartext

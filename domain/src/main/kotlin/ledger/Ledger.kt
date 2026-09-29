@@ -1,5 +1,7 @@
 package moe.frost.kochenite.domain.ledger
 
+import moe.frost.kochenite.domain.editor.EditorInput
+import moe.frost.kochenite.domain.editor.IncompleteRecord
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.LocalTime
@@ -13,7 +15,11 @@ data class BookCurrency(
         require(code.matches(Regex("[A-Z]{3}")) && scale in 0..3)
     }
 
-    fun parseMinor(text: String): Long = BigDecimal(text).movePointRight(scale).longValueExact()
+    fun parseMinor(text: String): Long {
+        val amount = BigDecimal(text)
+        if (amount.scale() > scale) throw ArithmeticException("Amount exceeds $code precision")
+        return amount.movePointRight(scale).longValueExact()
+    }
 
     fun formatMinor(minor: Long): String = BigDecimal.valueOf(minor, scale).toPlainString()
 }
@@ -91,7 +97,7 @@ fun proportionalAllocations(
         LedgerResult.Invalid(InvalidReason.OVERFLOW)
     }
 
-/** Null actual amounts remain draft input, never authoritative zeroes. */
+/** Transient editor input; only an explicit incomplete save serializes this payload. */
 data class EntryInput(
     val kind: EntryKind,
     val date: LocalDate,
@@ -156,6 +162,8 @@ sealed interface LedgerResult<out T> {
     data object TemporarilyUnavailable : LedgerResult<Nothing>
 
     data object RecoveryRequired : LedgerResult<Nothing>
+
+    data object UnexpectedFailure : LedgerResult<Nothing>
 }
 
 fun validId(id: String): Boolean = id.isNotBlank() && id.length <= 128
@@ -166,6 +174,7 @@ fun validateEntry(
     accounts: Map<String, Account>,
     categories: Map<String, Category>,
     today: LocalDate,
+    allowMissingAmounts: Boolean = false,
 ): LedgerResult<ValidatedEntry> {
     fun invalid(reason: InvalidReason) = LedgerResult.Invalid(reason)
     if (input.date.year !in 1..9999) return invalid(InvalidReason.DATE)
@@ -178,7 +187,8 @@ fun validateEntry(
         return invalid(InvalidReason.IDENTITY)
     }
     val account = accounts[input.accountId]?.takeUnless { it.archived } ?: return invalid(InvalidReason.ACCOUNT)
-    val amount = input.amountMinor ?: return invalid(InvalidReason.MISSING_AMOUNT)
+    val amount = input.amountMinor
+    val missing = amount == null || (input.kind == EntryKind.TRANSFER && input.receivedMinor == null)
     if (input.merchantAmount?.minor?.let { it <= 0 } == true) return invalid(InvalidReason.AMOUNT)
     if (input.relatedEntryIds.size > 100 || input.relatedEntryIds.distinct().size != input.relatedEntryIds.size ||
         input.relatedEntryIds.any { !validId(it) }
@@ -186,7 +196,11 @@ fun validateEntry(
         return invalid(InvalidReason.RELATED_ENTRY)
     }
     val balanceOnly = input.kind in setOf(EntryKind.OPENING, EntryKind.ADJUSTMENT)
-    if (!balanceOnly && (amount == 0L || (input.kind == EntryKind.TRANSFER && amount < 0))) return invalid(InvalidReason.AMOUNT)
+    if (!balanceOnly &&
+        (amount == 0L || (input.kind == EntryKind.TRANSFER && amount != null && amount < 0))
+    ) {
+        return invalid(InvalidReason.AMOUNT)
+    }
     if (input.kind != EntryKind.TRANSFER && (input.destinationAccountId != null || input.receivedMinor != null)) {
         return invalid(InvalidReason.TRANSFER)
     }
@@ -197,21 +211,31 @@ fun validateEntry(
                     val destination =
                         accounts[input.destinationAccountId]?.takeUnless { it.archived }
                             ?: return invalid(InvalidReason.ACCOUNT)
-                    val received = input.receivedMinor ?: return invalid(InvalidReason.MISSING_AMOUNT)
-                    if (destination.id == account.id || received <= 0) return invalid(InvalidReason.TRANSFER)
+                    val received = input.receivedMinor
+                    if (destination.id == account.id || (received != null && received <= 0)) return invalid(InvalidReason.TRANSFER)
                     if (destination.currency.code == account.currency.code && destination.currency != account.currency) {
                         return invalid(InvalidReason.CURRENCY)
                     }
-                    if (destination.currency == account.currency && received != amount) return invalid(InvalidReason.TRANSFER)
-                    listOf(Posting(account.id, Math.negateExact(amount)), Posting(destination.id, received))
+                    if (destination.currency == account.currency && received != null && amount != null &&
+                        received != amount
+                    ) {
+                        return invalid(InvalidReason.TRANSFER)
+                    }
+                    if (amount == null ||
+                        received == null
+                    ) {
+                        emptyList()
+                    } else {
+                        listOf(Posting(account.id, Math.negateExact(amount)), Posting(destination.id, received))
+                    }
                 }
 
                 EntryKind.EXPENSE, EntryKind.INCOME -> {
-                    listOf(Posting(account.id, amount))
+                    if (amount == null) emptyList() else listOf(Posting(account.id, amount))
                 }
 
                 else -> {
-                    listOf(Posting(account.id, amount))
+                    if (amount == null) emptyList() else listOf(Posting(account.id, amount))
                 }
             }
         if (balanceOnly || input.kind == EntryKind.TRANSFER) {
@@ -229,7 +253,7 @@ fun validateEntry(
             var total = 0L
             for (allocation in input.allocations) {
                 if (!validId(allocation.id) || allocation.amountMinor < 0 ||
-                    (allocation.amountMinor == 0L && input.receiptLines.isEmpty())
+                    (allocation.amountMinor == 0L && input.receiptLines.isEmpty() && amount != null)
                 ) {
                     return invalid(InvalidReason.ALLOCATIONS)
                 }
@@ -239,7 +263,7 @@ fun validateEntry(
                 }
                 total = Math.addExact(total, allocation.amountMinor)
             }
-            if (total != Math.absExact(amount)) return invalid(InvalidReason.ALLOCATIONS)
+            if (amount != null && total != Math.absExact(amount)) return invalid(InvalidReason.ALLOCATIONS)
         }
         if (input.receiptLines.isNotEmpty()) {
             if (input.receiptLines
@@ -252,8 +276,10 @@ fun validateEntry(
                 return invalid(InvalidReason.ALLOCATIONS)
             }
             val receiptTotal = input.receiptLines.fold(0L) { total, line -> Math.addExact(total, line.merchantMinor) }
-            if (receiptTotal != (input.merchantAmount?.minor ?: Math.absExact(amount))) return invalid(InvalidReason.ALLOCATIONS)
+            val target = input.merchantAmount?.minor ?: amount?.let { Math.absExact(it) }
+            if (target != null && receiptTotal != target) return invalid(InvalidReason.ALLOCATIONS)
         }
+        if (missing && !allowMissingAmounts) return invalid(InvalidReason.MISSING_AMOUNT)
         LedgerResult.Success(ValidatedEntry(input, postings, account.currency))
     } catch (_: ArithmeticException) {
         invalid(InvalidReason.OVERFLOW)
@@ -266,24 +292,6 @@ data class SavedEntry(
     val token: String,
     val status: EntryStatus,
     val input: EntryInput,
-)
-
-data class Draft(
-    val id: String,
-    val entryId: String,
-    val token: String,
-    val input: EntryInput,
-    val originalToken: String? = null,
-    val incomplete: Boolean = false,
-    /** Preserves intermediate editor input such as "12." or an invalid amount. */
-    val amountText: String? = null,
-    val dateText: String? = null,
-    val timeText: String? = null,
-    val receivedText: String? = null,
-    val merchantAmountText: String? = null,
-    val merchantCurrencyText: String? = null,
-    val allocationTexts: Map<String, String> = emptyMap(),
-    val lineTexts: Map<String, String> = emptyMap(),
 )
 
 data class LedgerCursor(
@@ -313,23 +321,22 @@ data class CurrencyTotals(
 }
 
 interface PostingService {
-    /** expectedToken = null creates only. A save never overwrites another editor's draft. */
-    suspend fun saveDraft(
-        draft: Draft,
-        expectedToken: String?,
-    ): LedgerResult<Draft>
-
-    suspend fun confirm(
-        draftId: String,
-        expectedToken: String,
+    suspend fun post(
+        editor: EditorInput,
+        expectedIncompleteToken: String? = null,
     ): LedgerResult<SavedEntry>
 
-    suspend fun beginEdit(entryId: String): LedgerResult<Draft>
+    suspend fun saveIncomplete(
+        editor: EditorInput,
+        expectedToken: String?,
+    ): LedgerResult<IncompleteRecord>
 
-    suspend fun discardDraft(
-        draftId: String,
+    suspend fun deleteIncomplete(
+        id: String,
         expectedToken: String,
     ): LedgerResult<Unit>
+
+    suspend fun beginEdit(entryId: String): LedgerResult<EditorInput>
 
     suspend fun trash(
         entryId: String,

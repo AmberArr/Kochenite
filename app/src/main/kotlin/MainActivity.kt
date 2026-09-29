@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import moe.frost.kochenite.domain.ledger.map
+import moe.frost.kochenite.navigation.BookScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,13 +23,13 @@ class MainActivity : ComponentActivity() {
                     @Suppress("UNCHECKED_CAST")
                     override fun <T : ViewModel> create(modelClass: Class<T>): T {
                         require(modelClass == BookViewModel::class.java)
-                        return BookViewModel(storage) as T
+                        return BookViewModel { storage.open().map { it.services } } as T
                     }
                 },
             )[BookViewModel::class.java]
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            FoundationTheme { BookScreen(state, model) }
+            KocheniteTheme { BookScreen(state, model) }
         }
     }
 }

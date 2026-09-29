@@ -399,3 +399,383 @@ Next: begin milestone 2.7 reports and current-rate estimates.
 Refined the editor in `app/src/main/kotlin/BookScreen.kt` without changing field order or transaction behavior. Amount is now an unoutlined hero with visible currency, direct text input, and an accessible compact sign toggle. Transaction kind uses a compact selector; account, destination, category, and date/time use left-aligned label/value rows with trailing chevrons. Merchant/payee remains a text input. Allocation details and More details are low-emphasis action rows, and Save incomplete now sits beside Post in the fixed footer. Added the Account and sign-toggle accessibility strings in `app/src/main/res/values/strings.xml`.
 
 Updated `BookUiDeviceTest` to click the footer Save incomplete action after its relocation. `./gradlew spotlessApply verify :app:assembleDebug :app:assembleDebugAndroidTest` passed. The updated APKs were installed over the existing debug installation with `adb install -r`, preserving its data. `node scripts/run-financial-tests.mjs adb-a2480128-JKi84V._adb-tls-connect._tcp --ui` completed all 38 financial, setup, UI, and process-restart assertions. The editor was visually inspected on the connected OnePlus 6T; dark-theme, wide-layout, and dedicated keyboard/system-bar stress coverage remain in milestone 2.9. `git diff --check` passed.
+
+## Transaction editor redesign check — September 25, 2026
+
+Kept the existing Spotless 8.10.2 and ktlint 1.8.0 configuration. The first
+`./gradlew spotlessApply verify :app:assembleDebugAndroidTest
+:persistence:assembleDebugAndroidTest` run stopped on one ktlint
+`if-else-wrapping` finding; after expanding the focus block, formatting passed,
+`spotlessCheck` passed, all 10 host script tests passed, and domain sources and
+tests compiled. `:domain:test` then failed three new editor assertions: the JPY
+precision transition accepted excess fractional digits, one currency merge
+assertion checked an internal signed string instead of the displayed amount,
+and the last-item test deleted the categorized item before checking category
+restoration. Updated the parser and test cases; those fixes have not been rerun.
+The build did not reach successful app/persistence instrumentation packaging;
+no device suite or visual review was run. `git diff --check` passed. Next: rerun
+the Gradle command, resolve any remaining failures, then continue phone review.
+
+## Setup-button device check — September 25, 2026
+
+The setup helper was submitting while the last currency field still owned the
+keyboard, leaving `Create book` below the visible scroll viewport on the phone.
+It now scrolls the tagged button into view, asserts it is displayed, and then
+uses Compose `performClick`; the test does not depend on an Enter key event.
+`./gradlew spotlessApply :app:assembleDebugAndroidTest` passed, and the rebuilt
+instrumentation APK installed successfully on the OnePlus 6T. After another
+debug-data reset, the focused `unchangedEditorClosesWithoutDiscardConfirmation`
+device test passed from the blank setup screen, including account creation and
+transition into the main app. A manual touch path with synthetic values
+(`Synthetic cash`, `USD`, `100.00`, `USD`) also showed the new account at
+`USD 100.00`. `git diff --check` passed.
+
+## Split-list entry behavior — September 25, 2026
+
+Changed the parent `+ Split transaction` action so it opens the Transaction
+items page without creating an implicit item or opening an item sheet. `+ Add
+item` remains the explicit creation action and still opens the new item sheet.
+Updated the focused UI journey and transaction UI proposal/phase plan. Ran
+`./gradlew spotlessApply :app:assembleDebug :app:assembleDebugAndroidTest`
+before installing both APKs over the existing debug app. The focused physical-
+device test `itemChangesRemainInMemoryUntilParentTransactionIsSaved` passed on
+the connected OnePlus 6T (`OK (1 test)`), including the empty-list first tap,
+explicit `+ Add item`, in-memory edits, and parent Save. `git diff --check`
+passed after the update.
+
+## Date/time picker layout fix — September 25, 2026
+
+The date picker was rendered inside the default 280dp `AlertDialog` width,
+which clipped the rightmost weekday and dates on the 384dp reference phone.
+Replaced that container with a full-width custom dialog constrained by phone
+gutters, added a selected Date/Time tab indicator, and matched the dialog and
+picker surface colors. Date and time values still commit together only when
+Done is pressed; Cancel and outside dismissal leave the editor unchanged.
+
+`./gradlew spotlessApply :app:assembleDebug :app:assembleDebugAndroidTest`
+passed after the implementation. The final debug APK was installed over the
+existing debug app without clearing data. Physical-device captures on the
+OnePlus 6T show all seven calendar columns and the complete time dial in both
+tabs; `git diff --check` passed.
+
+## Date/time picker color cleanup — September 26, 2026
+
+After restoring the default Material 3 theme, removed the temporary
+component-specific picker color overrides. The date/time dialog now relies on
+Material 3's normal picker defaults; the phone-width layout fix remains because
+it prevents calendar clipping. No build or device verification was requested
+for this cleanup.
+
+## Retire Phase 1 sample proof — September 26, 2026
+
+Removed the obsolete sample-only activity, ViewModel, domain model, Room database,
+storage wrapper, schema snapshots, and their unit/device tests. Removed the old
+sample instrumentation and release-journey scripts; current financial
+instrumentation and APK checks remain. Moved the default light/dark Material 3
+wrapper into `KocheniteTheme.kt` and removed its dependency on the sample screen.
+Pruned sample-only strings and the now-unused app JVM-test dependencies.
+
+Updated the active master/Phase 2 plans, build guide, financial-kernel notes and
+README to describe the financial app. Kept the Phase 1 plan and worklog as
+historical verification, and recorded that any old `foundation-proof.db` on a
+device is neither opened nor deleted. No build, test or phone check was run, per
+the user's instruction. `git diff --check` passed.
+
+## Codebase review — September 27, 2026
+
+Reviewed the active working tree, including the existing uncommitted editor
+redesign, at the user's request. Recorded seven prioritized correctness/testing
+findings plus architectural weaknesses in the
+[review report](../reviews/2026-09-27-codebase-review.md). No application code,
+test source, existing staged content or device data was changed. Updated plan
+status to distinguish passing host checks from unresolved review/device work.
+
+`./gradlew verify` passed: 16 domain tests and 10 host-script tests; Android lint
+reported zero errors (app: 49 warnings and one hint; persistence: six warnings).
+The initial sandboxed invocation failed with `FileNotFoundException` / read-only
+filesystem for the existing Gradle wrapper cache lock under
+`/home/amber/.local/share/gradle/wrapper/dists/gradle-9.5.0-bin/`.
+The supported access escalation allowed verification without cache redirection
+or environment changes. `./gradlew :app:assembleDebugAndroidTest
+:persistence:assembleDebugAndroidTest` also passed. `git diff --check` and an
+explicit whitespace check of the new, untracked review report passed.
+
+An isolated Kotlin probe in `/tmp/kochenite-review-kenz8ba7/Review.kt`, compiled
+against the current domain classes, demonstrated: opening a valid foreign
+receipt replaces corrected `[700, 300]` allocations with `[500, 500]`; switching
+Transfer to Expense retains nonblank received text despite removing its
+destination; reselecting Expense clears existing category IDs. The accepted
+kind-selection sign reset was explicitly excluded as a defect. Bulk preview vs
+submission mismatch, duplicate navigation pops and pagination races were traced
+statically; no device reproduction is claimed.
+
+No physical-device, process-death, release or performance tests were run during
+this review. Device-test APK compilation does not establish runtime behavior.
+The removed financial regression cases and unsaved-editor process-death coverage
+remain verification gaps. Next: fix the review findings with focused regression
+coverage before completing the redesign's device acceptance or starting 2.7.
+
+## Review fixes and feature structure — September 27, 2026
+
+Implemented the authorized review fixes in the existing working tree. Preserved
+corrected foreign allocations across opening, metadata and sign edits; relevant
+amount/item/order changes still recalculate. Leaving Transfer clears raw and
+parsed received values, and reselecting a kind retains compatible categories.
+Bulk preview and submission now use the same visible rows, with selection cleared
+when query scope changes. Editor saves have one route completion owner; other
+form completions carry their originating back-stack entry ID. Paging reserves
+requests before launching, cancels old queries, rejects stale generations/cursors
+and merges IDs. Search input has a 200 ms debounce.
+
+Split screens into navigation, transactions/editor/list/detail, accounts, setup,
+settings, overview, templates and shared components. Extracted editor/list/account
+state owners and injected domain repository interfaces. Moved pure editor input
+and transformations into `domain/editor`. Separated Room entities, DAO, migrations,
+reader, templates and error mapping. Retained the existing database qualified
+name/schema history and schema version 7. Batched aggregate relations inside a
+read transaction; a populated page now uses five SELECTs instead of four child
+queries per entry. Removed redundant posted/trash page reads from book refresh.
+Unexpected implementation failures have a separate typed result and sanitized
+exception-class-only logging. No financial exception payloads are logged.
+
+Restored fourteen financial regressions for retained features, including populated
+migrations from every version 1–6, exact large integers, interrupted migration
+retry, cancellation/overflow rollback, currency locks, corruption byte retention,
+reference detachment, Unicode/filter search, stale bulk atomicity, tied pagination,
+and corrected foreign allocation round trips. Added seven deterministic host
+state tests for delayed save/refresh, retry, discard, paging and selection. The
+UI suite now distinguishes rotation, restored navigation with a fresh ViewModel,
+and actual process restart; the latter confirms a different PID and absence of
+the abandoned editor from posted/incomplete storage. Explicit incomplete records
+still survive process restart.
+
+Verification:
+
+- `./gradlew spotlessApply` passed. `./gradlew verify` passed after final source
+  changes: 20 domain tests, seven application state tests and ten host-script
+  tests. Android lint: zero errors, app 50 warnings plus one hint, persistence
+  six warnings. Remaining warnings include existing resource/localization and
+  dependency/API advisories; dependency upgrades were not included in this fix.
+- `./gradlew verify :app:assembleDebug :app:assembleDebugAndroidTest
+  :persistence:assembleDebugAndroidTest` passed. Subsequent test-only rebuilds
+  and final verification also passed, using default Gradle caches with supported
+  access escalation.
+- Rediscovered the sole connected OnePlus 6T/API 35 using `adb devices -l` and
+  explicitly selected it. Installed debug app and instrumentation APKs with `-r`.
+  No app data was cleared; other apps were untouched.
+- `node scripts/run-financial-tests.mjs <discovered-serial> --ui` passed all 38:
+  seven financial storage, fourteen regressions, six setup, seven UI and four
+  separate-process steps. Sanitized summary: ignored
+  `.local/financial-evidence/instrumentation.json`.
+- During verification, corrected a Kotlin/JUnit non-void test signature, an
+  incorrect Compose test import and an assertion that ran before asynchronous
+  navigation completed. Also made UI fixtures tolerate pre-existing synthetic
+  incomplete records and assert that discard returns to the posted detail.
+  Final full device rerun passed.
+- `git diff --check` and `git diff --cached --check` passed. New source/document
+  whitespace was checked separately. Existing staging and unrelated local files
+  remain preserved.
+
+The initial sandboxed Node runner could not connect through ADB and reported
+`ADB command failed or timed out` at its device stage. Supported escalation
+allowed it to use the existing ADB server; no environment/cache workaround was
+introduced.
+
+Remaining scope: substring search still scans candidate rows; Phase 2.9 retains
+its 50,000-record benchmark/index work. Full compact/wide, theme, large-text,
+keyboard/inset/accessibility and release acceptance remain pending. Force-stop
+plus fresh-ViewModel recreation tests do not prove Android low-memory task
+restoration. Reports/rates, backup/restore and signing recovery gates remain
+unchanged. Phase 2 is not marked complete.
+
+No commit was created: the checkout already contains staged documentation moves
+and substantial unrelated/earlier Kotlin and configuration changes. Its check-only
+hook requires all relevant working files to match the index. Kept that staging
+intact rather than mixing those changes into this milestone or bypassing the hook.
+The [structure guide](../project-structure.md) and
+[review follow-up](../reviews/2026-09-27-codebase-review.md#implementation-follow-up)
+record the final boundaries and regression mapping. Next: finish the editor visual
+acceptance matrix before starting 2.7.
+
+## Save refresh and balance query performance — September 27, 2026
+
+The user authorized fixing the first two findings of a read-only performance
+inspection. No schema, financial semantics or Gradle module changed.
+
+- Account balances: `RoomAccounts.list()` now reads one grouped
+  `SUM(postings)` over posted entries instead of one `balance(accountId)` query
+  per account. Accounts without postings report 0. SQLite still rejects overflow
+  in the grouped `SUM`; post/trash/restore keep their per-account overflow checks.
+- Save refresh: `BookViewModel.reload` takes the book parts a mutation can
+  change (settings, accounts, categories, tags, templates, incomplete, totals,
+  ledger). Initial load and Retry still load everything, as does any reload
+  before the first complete load. Tags, templates, display currency, account
+  metadata and incomplete deletion no longer reload balances, totals or the
+  ledger. Posting/trash/restore/purge/adjust/opening balances reload accounts,
+  totals and ledger; bulk categorization reloads the ledger; category saves
+  reload categories and the ledger because reparenting changes filter matches.
+- Ledger refresh: `TransactionListStateOwner.refresh` keeps current rows
+  visible while it reloads, requests the depth already loaded (rounded up to
+  50, at most 200 per request) and keeps a selection only while its entry token
+  and allocation are unchanged. A failed refresh keeps rows and reports the
+  error. Filter changes still reset the list and selection.
+
+Verification:
+
+- `./gradlew spotlessApply` passed. `./gradlew :app:testDebugUnitTest` passed
+  15 application state tests, including new reload-scope, depth-preserving
+  refresh, selection-pruning and failed-refresh tests.
+- `./gradlew verify :app:assembleDebug :app:assembleDebugAndroidTest
+  :persistence:assembleDebugAndroidTest` passed.
+- Rediscovered the sole OnePlus 6T/API 35 with `adb devices -l`, selected it
+  explicitly and installed the debug app and both instrumentation APKs with `-r`.
+  No app data was cleared. `node scripts/run-financial-tests.mjs <serial> --ui`
+  passed all 39 checks. The runner now expects seven setup tests, adding a
+  grouped-balance regression covering transfers, trash exclusion and unused
+  accounts.
+
+Not measured: no before/after timing on the device; the 50,000-entry benchmark
+remains 2.9 work. No commit was created for the same reason as the previous
+entry: the touched files belong to the existing uncommitted restructuring.
+
+## Sentry crash diagnostics — September 27, 2026
+
+The user chose to send diagnostics to their Sentry-compatible endpoint
+`events.mira.tt` (project 4) and delegated feature selection. This is a
+cross-phase decision recorded in the master plan.
+
+- Added `io.sentry:sentry-android-core:8.58.0` to the app only. Initialization
+  is manual (`io.sentry.auto-init=false`) in `KocheniteApplication`. Enabled
+  features: uncaught crashes, ANRs, release-health sessions, and app-start and
+  frame performance (`tracesSampleRate = 1.0`). Environment is the build type;
+  release is `applicationId@versionName+versionCode`.
+- Privacy: no default PII, server name, screenshots, view hierarchy,
+  user-interaction breadcrumbs/tracing or replay module. `beforeSend`,
+  `beforeSendTransaction` and `beforeBreadcrumb` remove messages, exception
+  values, extras and request data. A JVM test covers the scrubber.
+- Persistence exposes `StorageDiagnostics.reporter`. `storageResult` reports
+  faults that become `RecoveryRequired` or `UnexpectedFailure` without changing
+  the ledger result; the app forwards them to Sentry.
+- DSN in `gradle.properties` as `kocheniteSentryDsn`; release always embeds it,
+  debug only with `-PkocheniteSentryDebug=true`. Added `app/proguard-rules.pro`
+  (`-dontobfuscate`, keep source/line attributes) so release traces are readable
+  without an auth token for mapping uploads. Added `INTERNET` permission.
+
+Verification:
+
+- `./gradlew spotlessApply`, `:app:testDebugUnitTest` (16 tests) and
+  `./gradlew verify` passed.
+- `./gradlew :app:assembleRelease` fails before this change's code runs: the
+  working tree enables `org.gradle.configuration-cache`, and the existing
+  `requireReleaseSigning` task captures script objects. With
+  `--no-configuration-cache` the signed release APK built. Its merged manifest
+  adds only `INTERNET`; native libraries are unchanged (four
+  `libandroidx.graphics.path.so`).
+- `node scripts/check-apk.mjs <release apk> "$ANDROID_HOME" release` now fails
+  with `Unexpected platform permission` for `INTERNET`. Editing that check was
+  blocked by the session's permission classifier and is left to the user.
+- On the OnePlus 6T/API 35: built debug with `-PkocheniteSentryDebug=true`,
+  installed with `-r` on the debug identity, launched it and backgrounded it.
+  Logcat showed `io.sentry.auto-init read: false`, no crash and no Sentry
+  errors. A synthetic host envelope (environment `setup-check`, message
+  "Kochenite Sentry setup check (synthetic)") returned HTTP 200 with id
+  `6a0d132d85d747ec84013e460e7a5920`. Receipt in the Sentry UI was not checked
+  from this host.
+- Reinstalled the normal debug build (empty DSN confirmed in generated
+  `BuildConfig`) and reran `node scripts/run-financial-tests.mjs <serial> --ui`:
+  all 39 passed. No app data was cleared.
+
+Open: the APK permission check, the release configuration-cache failure, and
+whether to add an in-app diagnostics opt-out. No commit, for the same reason as
+the previous entries.
+
+## System Back from a changed editor stranded navigation — September 27, 2026
+
+The user reported the debug app ignoring every button after leaving an edited
+transaction. Logcat showed edge-swipe system Back gestures from the editor
+immediately before the freeze. Reproduced on the OnePlus 6T with
+`KEYCODE_BACK`: Back left the changed editor without a discard prompt, and tab
+taps then did nothing.
+
+Cause: `BookScreen` registered the editor `BackHandler` before `NavHost`, whose
+own back callback is registered later and therefore has priority. System Back
+popped `EntryEditorRoute` without `closeEditor`, leaving changed editor state in
+memory. Every later tab, Add or top-bar Back went through `closeEditor`, which
+set `confirmDiscard` for a dialog owned by the no-longer-displayed editor.
+
+Fix: register the editor `BackHandler` inside the `EntryEditorRoute` destination.
+Added `BookUiDeviceTest.systemBackFromChangedEditorAsksBeforeLeavingAndKeepsNavigationWorking`
+(dispatcher Back, keep editing, Back, discard, then a tab still navigates); the
+runner now expects eight UI tests. The new test failed against the old handler
+placement ("Discard changes?" not displayed) and passes with the fix.
+
+Verification: `./gradlew verify` and all APK/instrumentation builds passed;
+`node scripts/run-financial-tests.mjs <serial> --ui` passed 40/40; a manual
+`KEYCODE_BACK` replay shows the discard dialog. The frozen debug process was
+force-stopped for recovery; no app data was cleared.
+
+Remaining: the top-level `BackHandler(enabled = state.saving)` has the same
+ordering weakness, so system Back can still leave a form during a save (the
+save completes; only the guard is ineffective). Tests previously used only the
+top-bar Back button.
+
+## Navigation and Back consistency — September 27, 2026
+
+The user asked to fix all navigation/Back problems found in the navigation
+review and the freeze investigation.
+
+- Save guard: `BookScreen` composes a `BackHandler` only while `state.saving`,
+  so it is the newest callback and outranks `NavHost` and destination handlers.
+  The previous always-registered guard was outranked and ineffective.
+- Editor opening: incomplete, template, edit, copy and linked-refund paths no
+  longer call `nav.navigate` directly. `TransactionEditorStateOwner.open`
+  ignores requests while an editor exists or a load is pending, and navigates
+  through `openEditor(origin)`, which refuses when saving or when the origin
+  back-stack entry is no longer current. A refused navigation drops the loaded
+  editor, so editor state never exists without its route. `navigate()` now
+  creates a new editor inside `push()`, including after closing another editor.
+- Stranded-editor recovery: if editor state ever lacks its route, `BookScreen`
+  navigates back to it so the discard dialog is visible. An editor route whose
+  id does not match the live editor pops itself.
+- Top-bar Back: visibility is computed in the `BookScreen` body from the
+  current entry. It was read inside the top-bar lambda, which Compose can skip,
+  leaving a stale Back button (seen on the frozen Overview).
+- Template save loads its entry when restored without detail state.
+- Enabled `android:enableOnBackInvokedCallback` so API 33–35 devices use the
+  same predictive back path that targetSdk 36 gets by default on Android 16.
+  `NavController.currentBackStack` was avoided because lint rejects it as a
+  restricted API.
+
+Verification: `./gradlew spotlessApply verify` passed; app JVM tests are now 18
+(two new editor-opening tests: repeated requests load/navigate once; refused
+navigation leaves no editor). New device test
+`systemBackLeavesUnchangedEditorAndTopBackMatchesTheBackStack`; runner expects
+nine UI tests. `node scripts/run-financial-tests.mjs <serial> --ui` passed
+41/41. Manual `KEYCODE_BACK` replay: changed editor shows the discard dialog,
+Back on the dialog keeps editing, Discard returns and tabs navigate.
+
+Limitation: an `adb shell input swipe` edge swipe was not recognized as a system
+Back gesture, so real edge-swipe/predictive animation behavior still needs a
+hand check on the phone. Forms other than the transaction editor still have no
+unsaved-change confirmation; that is a product choice, not addressed here.
+
+## Commit of September 26–27 work — September 29, 2026
+
+The user asked agents to commit verified work when appropriate and to record
+that in `AGENTS.md`. `AGENTS.md` now authorizes commits of verified increments
+without asking, and says to commit before unrelated work and at session end.
+
+Verification: `./gradlew verify` passed (80 of 85 tasks up to date). No
+source, test or script file changed after the navigation entry above, whose
+`node scripts/run-financial-tests.mjs <serial> --ui` run passed 41/41. Device
+tests were not rerun this session.
+
+Commits: the plan/worklog move to `docs/` with the `AGENTS.md` policy change,
+then all Sept 26–27 work in one commit: Phase 1 proof retirement, feature
+restructuring, review fixes, Sentry diagnostics, performance and navigation
+fixes. Those changes were verified only together, not as separate
+intermediate states.
+
+Devices: `adb devices -l` now also lists a Pixel 8 Pro (husky) besides the
+reference OnePlus 6T; it is not yet part of the recorded coverage. Next action
+is unchanged: the editor visual acceptance matrix.
