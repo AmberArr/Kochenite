@@ -870,3 +870,59 @@ Limitations and open items:
   size.
 - The last Back left the app, and the phone returned to the previous
   (unrelated) task. That screenshot was deleted without being viewed.
+
+## Material 3 redesign in Figma — September 30, 2026
+
+The user asked for a complete app redesign in Figma that keeps every feature
+and follows Material 3 practice. File:
+<https://www.figma.com/design/0nD5HHluRn8UPxUbjJrK0n> (the user's Figma drafts).
+This is design only; no app code changed.
+
+What the file contains:
+
+- Foundations: local variables named after Compose `colorScheme` roles
+  (teal seed #006A6A) with Light and Dark modes; finance colours (income,
+  caution) and six chart colours; the M3 type scale in Roboto; shape, spacing
+  and elevation tokens. The official Material 3 Design Kit was available, but
+  its components are bound to its purple baseline variables, so a local system
+  was used to get the planned teal accents.
+- Components: 61 Material icons and 27 components with properties (app bars,
+  navigation bar and rail, FAB, buttons, chips, segmented buttons, text fields,
+  list item, ledger row, notice, dialog, sheet handle, snackbar and others).
+- Screens · Compact: 45 phone frames and a dialog sheet in 11 flows, with a
+  design note under each frame: setup and storage states; Overview; Transactions
+  (posted, incomplete, trash, overflow menu); search, filter sheet with
+  validation, bulk categorize; detail, trash, permanent-delete dialog, save as
+  template; the editor (expense, foreign purchase with future-date error,
+  transfer, completing an incomplete entry); items with match/mismatch and undo;
+  item sheet; date and time picker; currency, tags, related and notes sheets;
+  editor dialogs; accounts, account forms, balance adjustment, groups and
+  order; Reports and its empty state; Settings, categories, tags, templates.
+- Screens · Dark: eight key screens with the colour collection set to Dark.
+- Screens · Expanded: 1280×800 navigation rail with list-detail layouts for
+  Transactions and Accounts, and a two-column Overview.
+
+Design choices that differ from the current app (all open to the user's
+decision before implementation):
+
+- Status filters become chips under an M3 search bar; Templates and Bulk
+  categorize move into the ⋮ menu.
+- Numeric "Order (lower first)" fields become a drag-to-reorder "Groups &
+  order" screen with accessible Move up/Move down actions.
+- Dates use locale formatting and a combined date/time picker instead of ISO
+  text.
+- Settings reserves disabled 2.8 backup/restore rows, and Reports shows a
+  category breakdown with a table view. Both are placeholders for 2.7/2.8
+  scope and are not built yet.
+
+Verification: every section was checked with Figma screenshots. Problems found
+and fixed during the build: binding a variable dropped paint opacity (disabled
+states now use layer opacity), and some cloned instances kept a black fallback
+colour that could render as a black strip (all pages were audited and 14 paints
+repaired). Font use was checked as Roboto throughout. No app build was needed
+for this documentation-only change.
+
+Limitations: dark and expanded layouts cover key screens, not every screen.
+Tabular figures (`tnum`) are specified in notes because Figma text styles here
+don't carry that feature. Motion and predictive Back are not designed. The
+file thumbnail could not be set through the API.

@@ -177,6 +177,7 @@ verified commits and keep dated results only in the worklog.
 - Save refresh scoping and grouped account balances: verified; see the [performance fix evidence](../../worklogs/02-manual-bookkeeping.md#save-refresh-and-balance-query-performance--september-27-2026). Search scans, related-picker debounce and list recomposition costs remain open.
 - Release builds work with the configuration cache and the APK check allows only the diagnostics `INTERNET` permission; see the [build fix evidence](../../worklogs/02-manual-bookkeeping.md#release-build-and-apk-check-fixes--september-30-2026).
 - Open editor limitations: live TalkBack, real edge-swipe/predictive Back and a physical wide device remain unchecked; dates display as ISO text rather than locale-formatted; the theme uses default Material colours rather than the planned teal accents. See the [visual acceptance evidence](../../worklogs/02-manual-bookkeeping.md#editor-visual-acceptance--september-30-2026).
+- Full-app Material 3 redesign: a design proposal exists in [Figma](https://www.figma.com/design/0nD5HHluRn8UPxUbjJrK0n) (teal M3 tokens with Light/Dark modes, component library, all current screens, tablet list-detail); see the [redesign record](../../worklogs/02-manual-bookkeeping.md#material-3-redesign-in-figma--september-30-2026). Nothing is implemented yet; adopting it in Compose needs a user decision on scope and timing.
 - Next: begin 2.7 reports and current-rate estimates.
 
 ## Transaction editor redesign
