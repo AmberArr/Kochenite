@@ -954,7 +954,7 @@ Checked with Figma screenshots of the setup, overview, transactions, editor,
 detail, accounts and tablet frames. Running balances in the rows are a
 display requirement that the current list code does not compute yet.
 
-### Second Figma review round — October 1, 2026
+### Second Figma review round — September 30, 2026
 
 The user left six comments in Figma and pasted them into the session, because
 the connected account's View seat can't read comments or annotations. Changes:
