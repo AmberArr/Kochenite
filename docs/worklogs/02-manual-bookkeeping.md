@@ -953,3 +953,28 @@ Dark and tablet frames were regenerated from the updated phone screens.
 Checked with Figma screenshots of the setup, overview, transactions, editor,
 detail, accounts and tablet frames. Running balances in the rows are a
 display requirement that the current list code does not compute yet.
+
+### Second Figma review round — October 1, 2026
+
+The user left six comments in Figma and pasted them into the session, because
+the connected account's View seat can't read comments or annotations. Changes:
+
+- Right-side spacing: the Items sum / Amount / Difference row (both Items
+  screens) and Overview's income/spending/net-flow row now spread their columns
+  and right-align the last value. The Reports category rows drop the chevron
+  and fixed-width value box; the whole row stays the drill-down target.
+- Setup and New account no longer have a separate currency field; the account
+  currency is picked from the opening-balance amount control's currency pill,
+  as in the editor.
+- The currency sheet lists plain codes and names without symbols.
+- Account · Edit shows the balance in the shared amount control with the
+  currency pill disabled (locked currency); the separate currency field and
+  the balance card were removed. Editing the amount shows a note explaining
+  that the difference is saved as a balance adjustment, plus an optional
+  adjustment note. The separate Balance adjustment screen was replaced by
+  this "balance changed" state.
+
+Dark frames and the tablet Accounts and Overview layouts were regenerated or
+patched from the updated phone screens. Checked with Figma screenshots of
+setup, the currency sheet, both Items screens, Reports and the Accounts
+section.
