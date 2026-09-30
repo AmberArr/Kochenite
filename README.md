@@ -1,6 +1,6 @@
 # Kochenite
 
-[AI Slop Level Over 9000!](https://img.shields.io/badge/AI_Slop_Level-Over_9000!-blue)
+![AI Slop Level Over 9000!](https://img.shields.io/badge/AI_Slop_Level-Over_9000!-blue)
 
 Native, offline-first Android bookkeeping app in active development. The app
 supports local accounts and transaction entry; use synthetic data until the
