@@ -42,7 +42,7 @@ try {
   result.stage = 'book-setup';
   const setupOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
     'moe.frost.kochenite.persistence.ledger.BookSetupDeviceTest', runner], 120_000);
-  result.completedTests += completedTests(setupOutput, 7);
+  result.completedTests += completedTests(setupOutput, 10);
   if (ui) {
     result.stage = 'book-ui';
     const app = 'moe.frost.kochenite.debug';
@@ -51,8 +51,12 @@ try {
       .includes(`instrumentation:${uiRunner} (target=${app})`)) throw new Error('Unexpected UI instrumentation target');
     adb(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP']);
     const uiOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
-      'moe.frost.kochenite.BookUiDeviceTest', uiRunner], 120_000);
-    result.completedTests += completedTests(uiOutput, 9);
+      'moe.frost.kochenite.BookUiDeviceTest', uiRunner], 240_000);
+    result.completedTests += completedTests(uiOutput, 11);
+    result.stage = 'first-run-ui';
+    const firstRunOutput = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
+      'moe.frost.kochenite.SetupScreenDeviceTest', uiRunner], 120_000);
+    result.completedTests += completedTests(firstRunOutput, 3);
     result.stage = 'process-unsaved-create';
     const unsavedCreate = adb(['shell', 'am', 'instrument', '--user', user, '-w', '-r', '-e', 'class',
       'moe.frost.kochenite.BookEditorProcessDeviceTest#leaveUnsavedEditorInProcess', uiRunner], 120_000);

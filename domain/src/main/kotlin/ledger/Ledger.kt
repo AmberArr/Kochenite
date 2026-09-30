@@ -305,6 +305,36 @@ data class LedgerPage(
     val next: LedgerCursor?,
 )
 
+/** One account-side amount of a posted entry. */
+data class LedgerPosting(
+    val entryId: String,
+    val accountId: String,
+    val amountMinor: Long,
+)
+
+/** The balance of [accountId] immediately after [entryId] posted. */
+data class RunningBalance(
+    val entryId: String,
+    val accountId: String,
+    val balanceMinor: Long,
+)
+
+/**
+ * Walks back from each account's current balance. [newestFirst] must hold every posted posting of
+ * the listed accounts from the newest entry down to the oldest one of interest.
+ */
+fun runningBalances(
+    currentBalances: Map<String, Long>,
+    newestFirst: List<LedgerPosting>,
+): List<RunningBalance> {
+    val running = currentBalances.toMutableMap()
+    return newestFirst.map { posting ->
+        val after = running[posting.accountId] ?: 0L
+        running[posting.accountId] = Math.subtractExact(after, posting.amountMinor)
+        RunningBalance(posting.entryId, posting.accountId, after)
+    }
+}
+
 data class CategoryTotal(
     val rootCategoryId: String?,
     val kind: CategoryKind,

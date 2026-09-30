@@ -23,6 +23,9 @@ interface LedgerReader {
         end: LocalDate,
     ): LedgerResult<List<CategoryTotal>>
 
+    /** Balances after each posted entry in [entryIds]; trashed or unknown entries are omitted. */
+    suspend fun runningBalances(entryIds: List<String>): LedgerResult<List<RunningBalance>>
+
     suspend fun page(
         status: EntryStatus = EntryStatus.POSTED,
         after: LedgerCursor? = null,

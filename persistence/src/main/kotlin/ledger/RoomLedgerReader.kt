@@ -14,11 +14,14 @@ import moe.frost.kochenite.domain.ledger.InvalidReason
 import moe.frost.kochenite.domain.ledger.LedgerCursor
 import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerPage
+import moe.frost.kochenite.domain.ledger.LedgerPosting
 import moe.frost.kochenite.domain.ledger.LedgerReader
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.Money
 import moe.frost.kochenite.domain.ledger.ReceiptLine
+import moe.frost.kochenite.domain.ledger.RunningBalance
 import moe.frost.kochenite.domain.ledger.SavedEntry
+import moe.frost.kochenite.domain.ledger.runningBalances
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -72,6 +75,24 @@ internal class RoomLedgerReader(
             }
         }
 
+    override suspend fun runningBalances(entryIds: List<String>): LedgerResult<List<RunningBalance>> =
+        storageResult {
+            db.withTransaction {
+                val wanted = entryIds.toSet()
+                // SQLite limits bound variables per statement.
+                val rows = wanted.chunked(500).flatMap { dao.postedEntries(it) }
+                val oldest =
+                    rows.minWithOrNull(compareBy<EntryRow>({ it.date }, { it.time }, { it.id })) ?: return@withTransaction emptyList()
+                val accounts = rows.flatMap { listOfNotNull(it.accountId, it.destinationAccountId) }.distinct()
+                val current = dao.balances().associate { it.accountId to it.balanceMinor }
+                val postings =
+                    dao
+                        .postingsSince(accounts, oldest.date, oldest.time, oldest.id)
+                        .map { LedgerPosting(it.entryId, it.accountId, it.amountMinor) }
+                runningBalances(current, postings).filter { it.entryId in wanted }
+            }
+        }
+
     override suspend fun page(
         status: EntryStatus,
         after: LedgerCursor?,
@@ -114,6 +135,8 @@ internal class RoomLedgerReader(
                         from?.toString(),
                         through?.toString(),
                         filter.kind?.name,
+                        // Opening balances are presented as balance adjustments.
+                        EntryKind.OPENING.name.takeIf { filter.kind == EntryKind.ADJUSTMENT },
                         filter.accountId,
                         filter.categoryId,
                         filter.tagId,

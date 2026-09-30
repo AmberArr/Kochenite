@@ -6,6 +6,7 @@ import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountBalance
 import moe.frost.kochenite.domain.ledger.AccountGroup
 import moe.frost.kochenite.domain.ledger.AccountRepository
+import moe.frost.kochenite.domain.ledger.BalanceAdjustment
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.BookSettings
 import moe.frost.kochenite.domain.ledger.Category
@@ -89,6 +90,43 @@ internal class RoomAccounts(
                     dao.updateAccount(account.copy(currencyLocked = old.currencyLocked).row())
                 }
                 dao.accounts().first { it.id == account.id }.model()
+            }
+        }
+
+    override suspend fun saveWithAdjustment(
+        account: Account,
+        expected: Account,
+        adjustment: BalanceAdjustment,
+    ): LedgerResult<Account> =
+        storageResult {
+            db.withTransaction {
+                val old = dao.accounts().find { it.id == account.id }?.model()
+                if (old != expected) conflict()
+                if (old.archived) reject(InvalidReason.ACCOUNT)
+                if (dao.balance(account.id) != adjustment.expectedBalanceMinor) conflict()
+                val delta = Math.subtractExact(adjustment.newBalanceMinor, adjustment.expectedBalanceMinor)
+                if (delta == 0L) reject(InvalidReason.AMOUNT)
+                // Post while the stored account is still active; posting locks its currency.
+                postAdjustment(account.id, delta, EntryKind.ADJUSTMENT, LocalDate.now(), LocalTime.now(), adjustment.note)
+                save(account, old.copy(currencyLocked = true), null).required()
+            }
+        }
+
+    override suspend fun reorder(
+        groupIds: List<String>,
+        accountIds: List<String>,
+    ): LedgerResult<Unit> =
+        storageResult {
+            db.withTransaction {
+                val groups = dao.groups().map { it.id }
+                val accounts = dao.accounts().map { it.id }
+                if (groupIds.size != groups.size || groupIds.toSet() != groups.toSet() ||
+                    accountIds.size != accounts.size || accountIds.toSet() != accounts.toSet()
+                ) {
+                    conflict()
+                }
+                groupIds.forEachIndexed { position, id -> dao.setGroupPosition(id, position) }
+                accountIds.forEachIndexed { position, id -> dao.setAccountPosition(id, position) }
             }
         }
 
@@ -208,7 +246,9 @@ internal class RoomSettings(
                 posting.accountRepository.save(account, openingMinor = openingMinor).required()
                 if (starterCategories) {
                     listOf(
-                        Category("starter-food", "Food", CategoryKind.EXPENSE),
+                        Category("starter-groceries", "Groceries", CategoryKind.EXPENSE),
+                        Category("starter-dining", "Dining", CategoryKind.EXPENSE),
+                        Category("starter-transport", "Transport", CategoryKind.EXPENSE),
                         Category("starter-household", "Household", CategoryKind.EXPENSE),
                         Category("starter-salary", "Salary", CategoryKind.INCOME),
                     ).forEach { posting.categoryRepository.save(it).required() }

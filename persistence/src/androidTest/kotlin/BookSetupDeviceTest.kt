@@ -7,12 +7,14 @@ import moe.frost.kochenite.domain.editor.EditorInput
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountGroup
 import moe.frost.kochenite.domain.ledger.Allocation
+import moe.frost.kochenite.domain.ledger.BalanceAdjustment
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.Category
 import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.EntryInput
 import moe.frost.kochenite.domain.ledger.EntryKind
 import moe.frost.kochenite.domain.ledger.InvalidReason
+import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.persistence.PreservingSQLiteFactory
 import org.junit.After
@@ -68,7 +70,7 @@ class BookSetupDeviceTest {
             assertTrue(archived.includeInNetWorth)
             success(ledger.settingsRepository.setDisplayCurrency(BookCurrency("JPY", 0)))
             assertEquals(usd, success(ledger.accounts()).first().currency)
-            assertEquals(3, success(ledger.categoryRepository.list()).size)
+            assertEquals(5, success(ledger.categoryRepository.list()).size)
             db.close()
             val reopened = ledgerDatabase(context, name)
             try {
@@ -124,6 +126,134 @@ class BookSetupDeviceTest {
             val renamed = success(ledger.accountRepository.save(cash.copy(name = "Renamed"), cash))
             assertEquals(LedgerResult.Conflict, ledger.accountRepository.save(cash.copy(name = "Stale"), cash))
             assertTrue(renamed.currencyLocked)
+        }
+
+    @Test fun reorderStoresGroupAndAccountOrderAndRejectsIncompleteLists() =
+        runBlocking {
+            val first = success(ledger.accountRepository.saveGroup(AccountGroup("first", "First", 0)))
+            val second = success(ledger.accountRepository.saveGroup(AccountGroup("second", "Second", 1)))
+            listOf("a", "b", "c").forEachIndexed { position, id ->
+                success(
+                    ledger.accountRepository.save(
+                        Account(id, id.uppercase(), usd, position = position),
+                        openingMinor =
+                            100L * (position + 1),
+                    ),
+                )
+            }
+            success(ledger.accountRepository.reorder(listOf(second.id, first.id), listOf("c", "a", "b")))
+            assertEquals(listOf(second.id, first.id), success(ledger.accountRepository.groups()).map { it.id })
+            val listed = success(ledger.accountRepository.list())
+            assertEquals(listOf("c", "a", "b"), listed.map { it.account.id })
+            // Order is presentation only: balances stay with their accounts.
+            assertEquals(listOf(300L, 100L, 200L), listed.map { it.balanceMinor })
+            assertEquals(LedgerResult.Conflict, ledger.accountRepository.reorder(listOf(first.id), listOf("c", "a", "b")))
+            assertEquals(LedgerResult.Conflict, ledger.accountRepository.reorder(listOf(second.id, first.id), listOf("a", "a", "b")))
+            assertEquals(
+                LedgerResult.Conflict,
+                ledger.accountRepository.reorder(listOf(second.id, first.id), listOf("a", "b", "c", "gone")),
+            )
+            assertEquals(listOf("c", "a", "b"), success(ledger.accountRepository.list()).map { it.account.id })
+        }
+
+    @Test fun saveWithAdjustmentPostsTheDifferenceAtomicallyAndRejectsAStaleBalance() =
+        runBlocking {
+            val cash = success(ledger.accountRepository.save(Account("cash", "Cash", usd), openingMinor = 42180))
+            val locked = success(ledger.accounts()).single()
+            assertTrue(locked.currencyLocked)
+            val renamed =
+                success(
+                    ledger.accountRepository.saveWithAdjustment(
+                        locked.copy(name = "Travel card"),
+                        locked,
+                        BalanceAdjustment(42180, 40980, "Reconciled with statement"),
+                    ),
+                )
+            assertEquals("Travel card", renamed.name)
+            assertEquals(40980L, success(ledger.balance("cash")))
+            val adjustment = success(ledger.page()).entries.first()
+            assertEquals(EntryKind.ADJUSTMENT, adjustment.input.kind)
+            assertEquals(-1200L, adjustment.input.amountMinor)
+            assertEquals("Reconciled with statement", adjustment.input.note)
+            assertTrue(success(ledger.totals(LocalDate.now(), LocalDate.now())).isEmpty())
+            // A balance that moved since the form was opened must not be overwritten.
+            val stale = BalanceAdjustment(42180, 50000)
+            assertEquals(LedgerResult.Conflict, ledger.accountRepository.saveWithAdjustment(renamed.copy(name = "Stale"), renamed, stale))
+            assertEquals(LedgerResult.Conflict, ledger.accountRepository.saveWithAdjustment(cash.copy(name = "Stale"), cash, stale))
+            assertEquals(
+                LedgerResult.Invalid(InvalidReason.AMOUNT),
+                ledger.accountRepository.saveWithAdjustment(renamed, renamed, BalanceAdjustment(40980, 40980)),
+            )
+            // Archiving and adjusting in one save posts first, then archives.
+            val archived =
+                success(ledger.accountRepository.saveWithAdjustment(renamed.copy(archived = true), renamed, BalanceAdjustment(40980, 0)))
+            assertTrue(archived.archived)
+            assertEquals(0L, success(ledger.balance("cash")))
+            assertEquals(
+                LedgerResult.Invalid(InvalidReason.ACCOUNT),
+                ledger.accountRepository.saveWithAdjustment(archived, archived, BalanceAdjustment(0, 100)),
+            )
+            assertEquals("Travel card", success(ledger.accounts()).single().name)
+            assertEquals(3, success(ledger.page()).entries.size)
+        }
+
+    @Test fun runningBalancesFollowPostedOrderPerAccountAndAdjustmentFilterIncludesOpenings() =
+        runBlocking {
+            // Entries cannot be dated after today, so the fixture ends today.
+            val day = LocalDate.now().minusDays(2)
+            val jpy = BookCurrency("JPY", 0)
+            success(ledger.accountRepository.save(Account("bank", "Bank", jpy)))
+            success(ledger.accountRepository.save(Account("wise", "Wise", usd)))
+
+            suspend fun post(
+                id: String,
+                input: EntryInput,
+            ) = success(ledger.post(EditorInput("submission-$id", id, "", input)))
+            post("opening", EntryInput(EntryKind.OPENING, day, LocalTime.of(8, 0), "bank", 300000))
+            post(
+                "purchase",
+                EntryInput(EntryKind.EXPENSE, day, LocalTime.of(9, 0), "bank", -640, allocations = listOf(Allocation("a", 640))),
+            )
+            post("transfer", EntryInput(EntryKind.TRANSFER, day.plusDays(1), LocalTime.of(9, 0), "bank", 50000, "wise", 33120))
+            val trashed =
+                post(
+                    "trashed",
+                    EntryInput(
+                        EntryKind.EXPENSE,
+                        day.plusDays(1),
+                        LocalTime.of(10, 0),
+                        "bank",
+                        -999,
+                        allocations = listOf(Allocation("b", 999)),
+                    ),
+                )
+            post("adjustment", EntryInput(EntryKind.ADJUSTMENT, day.plusDays(2), LocalTime.of(9, 0), "wise", -120))
+            success(ledger.trash(trashed.id, trashed.token))
+
+            val all = success(ledger.runningBalances(listOf("opening", "purchase", "transfer", "trashed", "adjustment", "missing")))
+            assertEquals(
+                mapOf(
+                    ("adjustment" to "wise") to 33000L,
+                    ("transfer" to "bank") to 249360L,
+                    ("transfer" to "wise") to 33120L,
+                    ("purchase" to "bank") to 299360L,
+                    ("opening" to "bank") to 300000L,
+                ),
+                all.associate { (it.entryId to it.accountId) to it.balanceMinor },
+            )
+            // A filtered list still reports each row's true balance, counting the rows it does not show.
+            assertEquals(
+                listOf(299360L),
+                success(ledger.runningBalances(listOf("purchase"))).map { it.balanceMinor },
+            )
+            assertTrue(success(ledger.runningBalances(listOf("trashed"))).isEmpty())
+            assertTrue(success(ledger.runningBalances(emptyList())).isEmpty())
+            assertEquals(249360L, success(ledger.balance("bank")))
+
+            val adjustments = success(ledger.search(LedgerFilter(kind = EntryKind.ADJUSTMENT))).entries.map { it.id }
+            assertEquals(listOf("adjustment", "opening"), adjustments)
+            assertEquals(listOf("opening"), success(ledger.search(LedgerFilter(kind = EntryKind.OPENING))).entries.map { it.id })
+            assertEquals(listOf("purchase"), success(ledger.search(LedgerFilter(kind = EntryKind.EXPENSE))).entries.map { it.id })
         }
 
     @Test fun categoryEditsPreserveReferencesAndTwoLevelHierarchy() =

@@ -8,10 +8,9 @@ import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.AccountBalance
 import moe.frost.kochenite.domain.ledger.AccountGroup
 import moe.frost.kochenite.domain.ledger.AccountRepository
+import moe.frost.kochenite.domain.ledger.BalanceAdjustment
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.failure
-import java.time.LocalDate
-import java.time.LocalTime
 
 internal data class AccountState(
     val accounts: List<AccountBalance> = emptyList(),
@@ -25,7 +24,7 @@ internal class AccountStateOwner(
     private val repository: () -> AccountRepository?,
     private val otherMutationRunning: () -> Boolean,
     private val origin: () -> String?,
-    /** Receives the originating route and whether the mutation posted a ledger entry. */
+    /** Receives the originating route, or null to stay on the current screen, and whether a ledger entry was posted. */
     private val onChanged: suspend (String?, Boolean) -> Unit,
 ) {
     private val mutable = MutableStateFlow(AccountState())
@@ -48,6 +47,7 @@ internal class AccountStateOwner(
 
     private fun mutate(
         postsEntry: Boolean,
+        closeOnSuccess: Boolean = true,
         block: suspend (AccountRepository) -> LedgerResult<*>,
     ) {
         if (mutable.value.saving || otherMutationRunning()) return
@@ -58,7 +58,7 @@ internal class AccountStateOwner(
             try {
                 val result = block(accounts)
                 if (result is LedgerResult.Success) {
-                    onChanged(route, postsEntry)
+                    onChanged(route.takeIf { closeOnSuccess }, postsEntry)
                 } else {
                     mutable.value = mutable.value.copy(error = failure(result))
                 }
@@ -68,20 +68,24 @@ internal class AccountStateOwner(
         }
     }
 
+    /** Creates an account with [opening], or updates one and posts [adjustment] as its balance difference. */
     fun saveAccount(
         account: Account,
         old: Account?,
         opening: Long?,
-    ) = mutate(postsEntry = opening != null) { it.save(account, old, opening) }
+        adjustment: BalanceAdjustment? = null,
+    ) = mutate(postsEntry = opening != null || adjustment != null) {
+        if (old != null && adjustment != null) it.saveWithAdjustment(account, old, adjustment) else it.save(account, old, opening)
+    }
 
+    /** Group sheets close themselves, so the screen underneath stays. */
     fun saveGroup(
         group: AccountGroup,
         old: AccountGroup?,
-    ) = mutate(postsEntry = false) { it.saveGroup(group, old) }
+    ) = mutate(postsEntry = false, closeOnSuccess = false) { it.saveGroup(group, old) }
 
-    fun adjust(
-        id: String,
-        amount: Long,
-        note: String,
-    ) = mutate(postsEntry = true) { it.adjust(id, amount, LocalDate.now(), LocalTime.now(), note) }
+    fun reorder(
+        groupIds: List<String>,
+        accountIds: List<String>,
+    ) = mutate(postsEntry = false, closeOnSuccess = false) { it.reorder(groupIds, accountIds) }
 }

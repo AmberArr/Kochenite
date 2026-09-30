@@ -7,13 +7,17 @@ more modules now would add build boundaries without a demonstrated need.
 | --- | --- |
 | `app/.../MainActivity.kt` | Compose entry point and storage-to-domain dependency wiring |
 | `app/.../BookViewModel.kt` | Book startup, shared settings, overview and cross-feature refresh |
-| `app/.../navigation` | Typed routes, destination composition and route-scoped completion |
-| `app/.../transactions/editor` | Transient editor state, posting lifecycle and editor UI |
-| `app/.../transactions/list` | Query generation, paging, selection and transaction list UI |
+| `app/.../KocheniteTheme.kt` | Colour roles, finance and chart colours from the Figma variables |
+| `app/.../navigation` | Typed routes, the navigation bar/rail shell, list-detail panes, storage-state screens and route-scoped completion |
+| `app/.../transactions/editor` | Transient editor state, posting lifecycle, editor, items, sheets and date/time dialog |
+| `app/.../transactions/list` | Query state, paging, running balances, selection, ledger rows, filter sheet and bulk mode |
 | `app/.../transactions/detail` | Posted transaction detail and its actions |
-| `app/.../accounts` | Account/group mutation state and forms |
+| `app/.../transactions/EntryPresentation.kt` | Titles, icons and tones shared by rows, detail and templates |
+| `app/.../accounts` | Account/group mutation state, account list and form, Groups & order |
+| `app/.../reports` | Month report state and the Reports screen |
 | `app/.../setup`, `settings`, `overview`, `templates` | Corresponding feature screens |
-| `app/.../ui/components` | Shared form controls with no persistence dependency |
+| `app/.../ui/components` | Shared components, form controls and money/date display with no persistence dependency |
+| `app/src/main/res/drawable/ic_*.xml` | The Material icons exported from the Figma file |
 | `domain/.../editor` | Android-independent editor input and pure transformations |
 | `domain/.../ledger` | Financial rules, values and repository interfaces |
 | `persistence/.../ledger/RoomLedger.kt` | Atomic posting and token-checked mutations |
@@ -33,7 +37,12 @@ input stays in memory; it is never stored in navigation arguments or saved state
 
 Editor completion has one navigation owner: the editor route reacts to its state
 being cleared. Other form completions carry the originating back-stack entry ID,
-so a delayed completion cannot pop a different destination. Paging reserves the
+so a delayed completion cannot pop a different destination. Sheets that save
+(group, tag) and list-level actions stay on their screen. Each screen draws its
+own app bar; the shell owns only the navigation bar or rail, the Add button and
+the Undo snackbar. The Transactions query (`TransactionQuery`) lives in the
+ViewModel so Overview and Reports can open the list with a tab or filters set.
+Paging reserves the
 cursor before launching, invalidates old query generations, cancels old requests,
 and merges entries by ID. Changing search scope clears bulk selection; preview
 and submission use the same visible row snapshot.
@@ -41,7 +50,10 @@ and submission use the same visible row snapshot.
 Each populated ledger page uses one entry query and four relation batches inside
 a Room transaction, rather than four relation queries per entry. Book refresh no
 longer loads posted and trash pages in addition to the active search. Text input
-is debounced for 200 ms. Substring text matching still scans candidate rows;
+is debounced for 200 ms. After a posted page arrives, one more query reads the
+postings of the listed accounts from the oldest listed entry onward and walks
+back from current balances to give each row its running balance; its cost grows
+with list depth. Substring text matching still scans candidate rows;
 50,000-record performance and an index preserving the chosen Unicode/substring
 semantics remain explicit Phase 2.9 work, not a claimed optimization result.
 

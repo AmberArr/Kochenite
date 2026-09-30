@@ -1,144 +1,580 @@
 package moe.frost.kochenite.transactions.editor
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedIconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import kotlinx.coroutines.launch
 import moe.frost.kochenite.BookState
 import moe.frost.kochenite.BookViewModel
 import moe.frost.kochenite.R
 import moe.frost.kochenite.domain.editor.EditorInput
-import moe.frost.kochenite.domain.editor.addItem
 import moe.frost.kochenite.domain.editor.mainText
-import moe.frost.kochenite.domain.editor.moveItem
-import moe.frost.kochenite.domain.editor.removeItem
 import moe.frost.kochenite.domain.editor.withAccount
 import moe.frost.kochenite.domain.editor.withCurrency
 import moe.frost.kochenite.domain.editor.withKind
 import moe.frost.kochenite.domain.editor.withMainText
 import moe.frost.kochenite.domain.ledger.Account
 import moe.frost.kochenite.domain.ledger.BookCurrency
-import moe.frost.kochenite.domain.ledger.Category
 import moe.frost.kochenite.domain.ledger.CategoryKind
 import moe.frost.kochenite.domain.ledger.EntryKind
-import moe.frost.kochenite.domain.ledger.EntryStatus
-import moe.frost.kochenite.ui.components.Choice
-import moe.frost.kochenite.ui.components.EditorActionRow
+import moe.frost.kochenite.transactions.accountIcon
+import moe.frost.kochenite.transactions.categoryIcon
+import moe.frost.kochenite.transactions.categoryPath
+import moe.frost.kochenite.ui.components.AmountInput
+import moe.frost.kochenite.ui.components.AppIcon
+import moe.frost.kochenite.ui.components.AppScaffold
+import moe.frost.kochenite.ui.components.AppTopBar
+import moe.frost.kochenite.ui.components.ContentMaxWidth
+import moe.frost.kochenite.ui.components.CurrencySheet
 import moe.frost.kochenite.ui.components.Field
-import moe.frost.kochenite.ui.components.currency
-import java.time.LocalTime
-import java.time.ZoneOffset
-import java.util.Currency
+import moe.frost.kochenite.ui.components.GroupCard
+import moe.frost.kochenite.ui.components.IconAction
+import moe.frost.kochenite.ui.components.ListRow
+import moe.frost.kochenite.ui.components.Notice
+import moe.frost.kochenite.ui.components.NoticeTone
+import moe.frost.kochenite.ui.components.OptionSheet
+import moe.frost.kochenite.ui.components.Segmented
+import moe.frost.kochenite.ui.components.SheetOption
+import moe.frost.kochenite.ui.components.clockTime
+import moe.frost.kochenite.ui.components.display
+import moe.frost.kochenite.ui.components.weekdayDate
+import java.time.LocalDate
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+private enum class Picker { ACCOUNT, DESTINATION, CATEGORY, CURRENCY, TAGS, RELATED, DATE_TIME }
+
+/** One flat surface with no hidden section. Nothing is written before Save. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TransactionEditorScreen(
     state: BookState,
     bookModel: BookViewModel,
     model: TransactionEditorStateOwner,
     editor: EntryEditorState,
+    onClose: () -> Unit,
 ) {
     val current = editor.input
+    val input = current.input
     val accounts = state.accounts.map { it.account }
-    val account = accounts.find { it.id == current.input.accountId }
-    val destination = accounts.find { it.id == current.input.destinationAccountId }
+    val account = accounts.find { it.id == input.accountId }
+    val destination = accounts.find { it.id == input.destinationAccountId }
     val currency = current.transactionCurrency ?: account?.currency
-    val transfer = current.input.kind == EntryKind.TRANSFER
+    val transfer = input.kind == EntryKind.TRANSFER
     val foreign = !transfer && currency != account?.currency
     val focus = remember(current.id) { FocusRequester() }
-    val clearTitle = stringResource(R.string.clear_title)
-    var noteOpen by remember { mutableStateOf(false) }
-    var showDateTimePicker by remember { mutableStateOf(false) }
-    var pickerShowsTime by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var picker by remember(current.id) { mutableStateOf<Picker?>(null) }
+    var pendingKind by remember(current.id) { mutableStateOf<EntryKind?>(null) }
+    var confirmDelete by remember(current.id) { mutableStateOf(false) }
+    val incompleteToken = editor.incompleteToken
+
+    fun open(next: Picker) {
+        keyboard?.hide()
+        picker = next
+    }
+    EditorDialogs(editor, model, pendingKind, accounts) { pendingKind = null }
+    if (confirmDelete && incompleteToken != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.delete_incomplete_question)) },
+            text = { Text(stringResource(R.string.delete_incomplete_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    bookModel.deleteIncomplete(current.id, incompleteToken)
+                    model.abandonEditor()
+                }) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    if (editor.itemsOpen) {
+        TransactionItemsScreen(state, model, editor, onClose)
+        return
+    }
+    LaunchedEffect(current.id) {
+        if (editor.focusTitle) {
+            focus.requestFocus()
+            model.titleFocused()
+        }
+    }
+    val unknownAmounts = input.amountMinor == null || (transfer && input.receivedMinor == null)
+    AppScaffold(
+        topBar = {
+            AppTopBar(
+                stringResource(
+                    if (current.originalToken == null &&
+                        incompleteToken == null
+                    ) {
+                        R.string.new_transaction
+                    } else {
+                        R.string.edit_transaction
+                    },
+                ),
+                onBack = onClose,
+                close = true,
+                backEnabled = !editor.saving,
+            ) {
+                if (incompleteToken != null) {
+                    IconAction(
+                        R.drawable.ic_delete,
+                        stringResource(R.string.delete_incomplete),
+                        Modifier.testTag("delete-incomplete"),
+                        enabled = !editor.saving,
+                    ) { confirmDelete = true }
+                }
+            }
+        },
+        maxWidth = ContentMaxWidth,
+        bottomBar =
+            {
+                if (incompleteToken != null) {
+                    // A record with every amount entered can only be posted, so keeping it incomplete is no longer offered.
+                    TextButton(
+                        onClick = { model.confirmEditor(allowIncomplete = true) },
+                        enabled = !editor.saving && unknownAmounts,
+                        modifier = Modifier.testTag("save-incomplete"),
+                    ) { Text(stringResource(R.string.save_incomplete)) }
+                }
+                Button(
+                    onClick = { model.confirmEditor() },
+                    enabled = !editor.saving,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("save-transaction"),
+                ) {
+                    if (editor.saving) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text(stringResource(R.string.save_transaction))
+                    }
+                }
+            },
+    ) {
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (incompleteToken != null) Notice(stringResource(R.string.incomplete_editor_notice), tone = NoticeTone.CAUTION)
+            Segmented(
+                listOf(
+                    EntryKind.EXPENSE to stringResource(R.string.expense),
+                    EntryKind.INCOME to stringResource(R.string.income),
+                    EntryKind.TRANSFER to stringResource(R.string.transfer),
+                ),
+                input.kind,
+                enabled = !editor.saving,
+            ) { kind ->
+                val losesDetails = input.receiptLines.isNotEmpty() || input.allocations.any { it.categoryId != null }
+                if (kind != input.kind && losesDetails) pendingKind = kind else model.updateEditor { it.withKind(kind, accounts) }
+            }
+            val title: @Composable () -> Unit = {
+                Field(
+                    R.string.transaction_title,
+                    input.merchant,
+                    { text -> model.updateEditor { it.copy(input = it.input.copy(merchant = text)) } },
+                    enabled = !editor.saving,
+                    focusRequester = focus,
+                    clearable = true,
+                )
+            }
+            val amountPlaceholder = if (incompleteToken != null) stringResource(R.string.amount_needed) else null
+            if (transfer) {
+                title()
+                AmountInput(
+                    stringResource(R.string.sent_amount),
+                    account?.currency,
+                    current.mainText(accounts),
+                    { text -> model.updateEditor { it.withMainText(text, accounts) } },
+                    enabled = !editor.saving,
+                    error = amountError(current.mainText(accounts), account?.currency),
+                    placeholder = amountPlaceholder,
+                )
+                GroupCard { AccountRow(account, R.string.from_account, "choice-From account") { open(Picker.ACCOUNT) } }
+                AmountInput(
+                    stringResource(R.string.received_amount),
+                    destination?.currency,
+                    current.receivedText.orEmpty(),
+                    { text ->
+                        model.updateEditor {
+                            // Same-currency transfers move one amount, so both sides stay equal.
+                            if (account?.currency ==
+                                destination?.currency
+                            ) {
+                                it.copy(amountText = text, receivedText = text)
+                            } else {
+                                it.copy(receivedText = text)
+                            }
+                        }
+                    },
+                    enabled = !editor.saving && destination != null,
+                    error = amountError(current.receivedText.orEmpty(), destination?.currency),
+                    placeholder = amountPlaceholder,
+                )
+                GroupCard { AccountRow(destination, R.string.destination_account, "choice-To account") { open(Picker.DESTINATION) } }
+            } else {
+                AmountInput(
+                    stringResource(R.string.amount),
+                    currency,
+                    current.mainText(accounts),
+                    { text -> model.updateEditor { it.withMainText(text, accounts) } },
+                    negative = current.negative,
+                    onToggleSign = { model.updateEditor { it.copy(negative = !it.negative) } },
+                    enabled = !editor.saving,
+                    onCurrencyClick = { open(Picker.CURRENCY) },
+                    error = amountError(current.mainText(accounts), currency),
+                    placeholder = amountPlaceholder,
+                )
+                if (foreign) {
+                    // A foreign purchase also needs the actual charge in the account's own currency.
+                    val charged =
+                        current.amountText
+                            .orEmpty()
+                            .removePrefix("-")
+                            .removePrefix("+")
+                    AmountInput(
+                        stringResource(R.string.charged_to, account?.name.orEmpty()),
+                        account?.currency,
+                        charged,
+                        { text -> model.updateEditor { it.copy(amountText = text) } },
+                        enabled = !editor.saving,
+                        showCurrency = false,
+                        error = amountError(charged, account?.currency),
+                        placeholder = amountPlaceholder,
+                    )
+                }
+                title()
+            }
+            val futureDate = input.date > LocalDate.now()
+            Column {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                    val today = LocalDate.now()
+                    val day = if (input.date == today) stringResource(R.string.today) else weekdayDate(input.date, today)
+                    AssistChip(
+                        onClick = { open(Picker.DATE_TIME) },
+                        enabled = !editor.saving,
+                        label = {
+                            Text(
+                                "$day · ${clockTime(input.time)}",
+                                color = if (futureDate) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                            )
+                        },
+                        leadingIcon = {
+                            AppIcon(
+                                R.drawable.ic_schedule,
+                                null,
+                                Modifier.size(18.dp),
+                                tint = if (futureDate) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        border =
+                            if (futureDate) {
+                                BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+                            } else {
+                                AssistChipDefaults.assistChipBorder(true)
+                            },
+                        modifier = Modifier.testTag("transaction-date-time"),
+                    )
+                    // Receipt capture arrives with recognition; until then the entry point stays visibly inert.
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text(stringResource(R.string.from_receipt)) },
+                        leadingIcon = { AppIcon(R.drawable.ic_camera, null, Modifier.size(18.dp)) },
+                    )
+                }
+                if (futureDate) {
+                    Text(
+                        stringResource(R.string.future_date_short),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
+            }
+            GroupCard {
+                val muted = MaterialTheme.colorScheme.onSurfaceVariant
+                val add: @Composable () -> Unit = { AppIcon(R.drawable.ic_add, null, tint = muted) }
+                val chevron: @Composable () -> Unit = { AppIcon(R.drawable.ic_chevron_right, null, tint = muted) }
+                if (!transfer) {
+                    AccountRow(account, R.string.transaction_account, "choice-Account") { open(Picker.ACCOUNT) }
+                    if (input.receiptLines.isEmpty()) {
+                        val category = state.categories.find { it.id == input.allocations.firstOrNull()?.categoryId }
+                        ListRow(
+                            category?.let { categoryPath(it, state.categories) } ?: stringResource(R.string.uncategorized),
+                            Modifier.testTag("choice-Category"),
+                            supporting = stringResource(R.string.category),
+                            leading = { AppIcon(R.drawable.ic_category, null, tint = muted) },
+                            trailing = { chevron() },
+                            enabled = !editor.saving,
+                        ) { open(Picker.CATEGORY) }
+                        ListRow(
+                            stringResource(R.string.split_transaction),
+                            Modifier.testTag("transaction-items"),
+                            headlineColor = muted,
+                            leading = { AppIcon(R.drawable.ic_split, null, tint = muted) },
+                            trailing = { add() },
+                            enabled = !editor.saving,
+                        ) { model.showItems(true) }
+                    } else {
+                        ListRow(
+                            stringResource(R.string.transaction_items),
+                            Modifier.testTag("transaction-items"),
+                            supporting = itemsSummary(reconcile(current, accounts, state.categories)),
+                            leading = { AppIcon(R.drawable.ic_split, null, tint = muted) },
+                            trailing = { chevron() },
+                            enabled = !editor.saving,
+                        ) { model.showItems(true) }
+                    }
+                }
+                val tags = input.tagIds.mapNotNull { id -> state.tags.find { it.id == id }?.name }
+                ListRow(
+                    tags.joinToString().ifEmpty { stringResource(R.string.add_tags) },
+                    Modifier.testTag("editor-tags"),
+                    headlineColor = if (tags.isEmpty()) muted else MaterialTheme.colorScheme.onSurface,
+                    leading = { AppIcon(R.drawable.ic_label, null, tint = muted) },
+                    trailing = { if (tags.isEmpty()) add() else chevron() },
+                    enabled = !editor.saving,
+                ) { open(Picker.TAGS) }
+                val related = input.relatedEntryIds
+                ListRow(
+                    if (related.isEmpty()) {
+                        stringResource(R.string.link_related)
+                    } else {
+                        pluralStringResource(R.plurals.related_count, related.size, related.size)
+                    },
+                    Modifier.testTag("editor-related"),
+                    headlineColor = if (related.isEmpty()) muted else MaterialTheme.colorScheme.onSurface,
+                    leading = { AppIcon(R.drawable.ic_link, null, tint = muted) },
+                    trailing = { if (related.isEmpty()) add() else chevron() },
+                    enabled = !editor.saving,
+                ) { open(Picker.RELATED) }
+                // Attachments arrive with receipt capture.
+                ListRow(
+                    stringResource(R.string.attachment),
+                    leading = { AppIcon(R.drawable.ic_attach, null) },
+                    enabled = false,
+                )
+            }
+            Field(
+                R.string.note,
+                input.note,
+                { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } },
+                enabled = !editor.saving,
+                multiline = true,
+                clearable = true,
+            )
+        }
+        editor.error?.takeIf { it != R.string.conflict_message }?.let {
+            Notice(stringResource(it), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.ERROR)
+        }
+    }
+    when (picker) {
+        Picker.ACCOUNT, Picker.DESTINATION -> {
+            val toDestination = picker == Picker.DESTINATION
+            OptionSheet(
+                stringResource(
+                    if (toDestination) {
+                        R.string.destination_account
+                    } else if (transfer) {
+                        R.string.from_account
+                    } else {
+                        R.string.transaction_account
+                    },
+                ),
+                accounts
+                    .filter { !it.archived && (!toDestination || it.id != account?.id) }
+                    .map {
+                        SheetOption(
+                            it.id,
+                            it.name,
+                            listOfNotNull(it.type.ifBlank { null }, it.currency.code).joinToString(" · "),
+                            accountIcon(it.type),
+                        )
+                    },
+                if (toDestination) destination?.id else account?.id,
+                tag =
+                    if (toDestination) {
+                        "choice-To account"
+                    } else if (transfer) {
+                        "choice-From account"
+                    } else {
+                        "choice-Account"
+                    },
+                onDismiss = { picker = null },
+            ) { id ->
+                if (id != null) model.updateEditor { it.withAccount(id, accounts, destination = toDestination) }
+                picker = null
+            }
+        }
+
+        Picker.CATEGORY -> {
+            CategorySheet(state, current, input.allocations.firstOrNull()?.categoryId, { picker = null }) { id ->
+                model.updateEditor {
+                    it.copy(
+                        input =
+                            it.input.copy(
+                                allocations =
+                                    it.input.allocations.map { row ->
+                                        row.copy(categoryId = id)
+                                    },
+                            ),
+                    )
+                }
+                picker = null
+            }
+        }
+
+        Picker.CURRENCY -> {
+            CurrencySheet(currency, accounts.map { it.currency }, { picker = null }) { chosen ->
+                model.updateEditor { it.withCurrency(chosen, accounts) }
+                picker = null
+            }
+        }
+
+        Picker.TAGS -> {
+            TagsSheet(state, bookModel, model, current) { picker = null }
+        }
+
+        Picker.RELATED -> {
+            RelatedSheet(state, bookModel, model, current) { picker = null }
+        }
+
+        Picker.DATE_TIME -> {
+            DateTimeDialog(input.date, input.time, { picker = null }) { date, time ->
+                model.updateEditor { it.copy(dateText = null, timeText = null, input = it.input.copy(date = date, time = time)) }
+                picker = null
+            }
+        }
+
+        null -> {}
+    }
+}
+
+@Composable
+private fun amountError(
+    text: String,
+    currency: BookCurrency?,
+): String? {
+    val invalid = text.isNotBlank() && (currency == null || runCatching { currency.parseMinor(text) }.getOrNull()?.let { it <= 0 } != false)
+    return if (invalid) stringResource(R.string.amount_error) else null
+}
+
+@Composable
+private fun AccountRow(
+    account: Account?,
+    label: Int,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    ListRow(
+        account?.name ?: stringResource(R.string.choose_account),
+        Modifier.testTag(tag),
+        supporting = stringResource(label),
+        leading = { AppIcon(accountIcon(account?.type.orEmpty()), null, tint = muted) },
+        trailing = { AppIcon(R.drawable.ic_chevron_right, null, tint = muted) },
+        onClick = onClick,
+    )
+}
+
+@Composable
+internal fun CategorySheet(
+    state: BookState,
+    editor: EditorInput,
+    selected: String?,
+    onDismiss: () -> Unit,
+    choose: (String?) -> Unit,
+) {
+    val kind = if (editor.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+    val categories = state.categories.filter { !it.archived && it.kind == kind }.sortedBy { categoryPath(it, state.categories).lowercase() }
+    OptionSheet(
+        stringResource(R.string.category),
+        listOf(SheetOption(null, stringResource(R.string.uncategorized), icon = R.drawable.ic_category)) +
+            categories.map { SheetOption(it.id, categoryPath(it, state.categories), icon = categoryIcon(it, state.categories)) },
+        selected,
+        tag = "choice-Category",
+        onDismiss = onDismiss,
+        onSelect = choose,
+    )
+}
+
+/** "3 items · ¥8,760 of ¥8,760 · Matched" for the editor's items row. */
+@Composable
+internal fun itemsSummary(reconciliation: Reconciliation): String {
+    val currency = reconciliation.currency
+    val status =
+        stringResource(
+            when {
+                reconciliation.pending -> R.string.amounts_pending
+                reconciliation.difference != 0L -> R.string.totals_mismatch
+                reconciliation.invalidCategoryItems.isNotEmpty() -> R.string.item_categories_error
+                else -> R.string.totals_match
+            },
+        )
+    return listOfNotNull(
+        pluralStringResource(R.plurals.item_count, reconciliation.count, reconciliation.count),
+        stringResource(
+            R.string.sum_of_target,
+            reconciliation.sum?.let { currency?.display(it) } ?: "?",
+            reconciliation.target?.let { currency?.display(it) } ?: "?",
+        ),
+        status,
+        stringResource(R.string.account_allocation_pending).takeIf { reconciliation.allocationPending },
+    ).joinToString(" · ")
+}
+
+@Composable
+private fun EditorDialogs(
+    editor: EntryEditorState,
+    model: TransactionEditorStateOwner,
+    pendingKind: EntryKind?,
+    accounts: List<Account>,
+    clearPendingKind: () -> Unit,
+) {
     if (editor.confirmDiscard) {
         AlertDialog(
             onDismissRequest = model::keepEditing,
             title = { Text(stringResource(R.string.discard_changes)) },
-            confirmButton = { TextButton(onClick = model::discardEditor) { Text(stringResource(R.string.discard)) } },
+            text = { Text(stringResource(R.string.discard_changes_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = model::discardEditor,
+                ) { Text(stringResource(R.string.discard), color = MaterialTheme.colorScheme.error) }
+            },
             dismissButton = { TextButton(onClick = model::keepEditing) { Text(stringResource(R.string.keep_editing)) } },
         )
     }
@@ -151,947 +587,28 @@ internal fun TransactionEditorScreen(
             dismissButton = { TextButton(onClick = model::keepEditing) { Text(stringResource(R.string.keep_editing)) } },
         )
     }
-    if (editor.itemsOpen) {
-        TransactionItemsScreen(state, model, editor)
-        return
-    }
-    LaunchedEffect(current.id) {
-        if (editor.focusTitle) {
-            focus.requestFocus()
-            model.titleFocused()
-        }
-    }
-    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(
-            Modifier
-                .weight(1f)
-                .widthIn(max = EditorMaxWidth)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-        ) {
-            val kinds = listOf(EntryKind.EXPENSE, EntryKind.INCOME, EntryKind.TRANSFER)
-            val labels = listOf(R.string.expense, R.string.income, R.string.transfer)
-            PrimaryTabRow(selectedTabIndex = kinds.indexOf(current.input.kind).coerceAtLeast(0)) {
-                kinds.forEachIndexed { index, kind ->
-                    Tab(
-                        selected = current.input.kind == kind,
-                        enabled = !editor.saving,
-                        onClick = { model.updateEditor { it.withKind(kind, accounts) } },
-                        text = { Text(stringResource(labels[index]), maxLines = 1, autoSize = TabLabelAutoSize) },
-                    )
-                }
-            }
-            FlowRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                itemVerticalAlignment = Alignment.CenterVertically,
-            ) {
+    if (pendingKind != null) {
+        AlertDialog(
+            onDismissRequest = clearPendingKind,
+            title = { Text(stringResource(R.string.change_transaction_kind)) },
+            text = { Text(stringResource(R.string.change_kind_warning)) },
+            confirmButton = {
                 TextButton(onClick = {
-                    showDateTimePicker = true
-                }, modifier = Modifier.testTag("transaction-date-time")) {
-                    Text("${current.input.date}  ·  ${current.input.time.toString().take(5)}")
-                }
-                TextButton(onClick = {}, enabled = false) { Text(stringResource(R.string.from_receipt)) }
-            }
-            TextField(
-                value = current.input.merchant,
-                onValueChange = { text -> model.updateEditor { it.copy(input = it.input.copy(merchant = text)) } },
-                label = { Text(stringResource(R.string.transaction_title)) },
-                singleLine = true,
-                enabled = !editor.saving,
-                trailingIcon = {
-                    if (current.input.merchant.isNotEmpty()) {
-                        IconButton(onClick = {
-                            model.updateEditor { it.copy(input = it.input.copy(merchant = "")) }
-                        }) { Text("×", modifier = Modifier.semantics { contentDescription = clearTitle }) }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag("field-Title"),
-            )
-            Spacer(Modifier.height(12.dp))
-            AmountControl(
-                stringResource(if (transfer) R.string.sent_amount else R.string.amount),
-                currency,
-                text = current.mainText(accounts),
-                allowSign = !transfer,
-                negative = current.negative,
-                enabled = !editor.saving,
-                change = { text -> model.updateEditor { it.withMainText(text, accounts) } },
-                sign = { model.updateEditor { it.copy(negative = !it.negative) } },
-                choose = if (transfer) null else { chosen -> model.updateEditor { it.withCurrency(chosen, accounts) } },
-            )
-            if (foreign) {
-                AmountControl(
-                    stringResource(R.string.account_amount),
-                    account?.currency,
-                    text =
-                        current.amountText
-                            .orEmpty()
-                            .removePrefix("-")
-                            .removePrefix("+"),
-                    allowSign = false,
-                    negative = current.negative,
-                    enabled = !editor.saving,
-                    change = { text -> model.updateEditor { it.copy(amountText = text) } },
-                    sign = {},
-                    choose = null,
-                    small = true,
-                )
-            }
-            if (transfer) {
-                AmountControl(
-                    stringResource(R.string.received_amount),
-                    destination?.currency,
-                    text = current.receivedText.orEmpty(),
-                    allowSign = false,
-                    negative = false,
-                    enabled = !editor.saving,
-                    change = { text ->
-                        model.updateEditor {
-                            if (account?.currency == destination?.currency) {
-                                it.copy(amountText = text, receivedText = text)
-                            } else {
-                                it.copy(receivedText = text)
-                            }
-                        }
-                    },
-                    sign = {},
-                    choose = null,
-                )
-            } else {
-                EditorActionRow(
-                    stringResource(if (current.input.receiptLines.isEmpty()) R.string.split_transaction else R.string.transaction_items),
-                    if (current.input.receiptLines.isEmpty()) null else reconciliation(current, accounts, state.categories),
-                    onClick = {
-                        if (current.input.receiptLines.isEmpty()) {
-                            model.showItems(true)
-                        } else {
-                            model.showItems(true)
-                        }
-                    },
-                    testTag = "transaction-items",
-                )
-            }
-            HorizontalDivider()
-            Choice(
-                if (transfer) R.string.from_account else R.string.transaction_account,
-                account?.name ?: stringResource(R.string.choose_account),
-                accounts.filter { !it.archived }.map { it.id to "${it.name} · ${it.currency.code}" },
-                editorRow = true,
-            ) { id ->
-                if (id != null) model.updateEditor { it.withAccount(id, accounts) }
-            }
-            HorizontalDivider()
-            if (transfer) {
-                Choice(
-                    R.string.destination_account,
-                    destination?.name ?: stringResource(R.string.choose_account),
-                    accounts.filter { !it.archived && it.id != account?.id }.map { it.id to "${it.name} · ${it.currency.code}" },
-                    editorRow = true,
-                ) { id ->
-                    if (id != null) model.updateEditor { it.withAccount(id, accounts, destination = true) }
-                }
-                HorizontalDivider()
-            } else if (current.input.receiptLines.isEmpty()) {
-                ItemCategory(
-                    state,
-                    current,
-                    current.input.allocations
-                        .firstOrNull()
-                        ?.categoryId,
-                ) { id ->
-                    model.updateEditor {
-                        it.copy(
-                            input =
-                                it.input.copy(
-                                    allocations =
-                                        it.input.allocations.map { row ->
-                                            row.copy(categoryId = id)
-                                        },
-                                ),
-                        )
-                    }
-                }
-                HorizontalDivider()
-            }
-            EditorActionRow(stringResource(R.string.notes), current.input.note, onClick = {
-                noteOpen = true
-            })
-            HorizontalDivider()
-            OptionalSelectionRows(state, bookModel, model, current)
-            HorizontalDivider()
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.attachment), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            editor.error?.let {
-                Text(
-                    stringResource(it),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
-                )
-            }
-        }
-        HorizontalDivider()
-        Button(
-            onClick = {
-                model.confirmEditor()
+                    model.updateEditor { it.withKind(pendingKind, accounts) }
+                    clearPendingKind()
+                }) { Text(stringResource(R.string.continue_label)) }
             },
-            enabled = !editor.saving,
-            modifier =
-                Modifier
-                    .widthIn(max = EditorMaxWidth)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .heightIn(min = 52.dp),
-            shape =
-                androidx.compose.foundation.shape
-                    .RoundedCornerShape(12.dp),
-        ) {
-            if (editor.saving) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            } else {
-                Text(stringResource(R.string.save_transaction))
-            }
-        }
-    }
-    if (noteOpen) {
-        ModalBottomSheet(onDismissRequest = { noteOpen = false }) {
-            Column(Modifier.padding(16.dp).imePadding()) {
-                Field(
-                    R.string.notes,
-                    current.input.note,
-                    { text -> model.updateEditor { it.copy(input = it.input.copy(note = text)) } },
-                    multiline = true,
-                )
-                TextButton(onClick = { noteOpen = false }) { Text(stringResource(R.string.done)) }
-            }
-        }
-    }
-    if (showDateTimePicker) {
-        val dateState =
-            rememberDatePickerState(
-                initialSelectedDateMillis =
-                    current.input.date
-                        .atStartOfDay(ZoneOffset.UTC)
-                        .toInstant()
-                        .toEpochMilli(),
-            )
-        val timeState = rememberTimePickerState(current.input.time.hour, current.input.time.minute, true)
-        Dialog(
-            onDismissRequest = { showDateTimePicker = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
-        ) {
-            androidx.compose.material3.Surface(
-                modifier = Modifier.padding(horizontal = 12.dp).widthIn(max = 560.dp).fillMaxWidth(),
-                shape = MaterialTheme.shapes.extraLarge,
-            ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 24.dp, bottom = 8.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.transaction_date_time),
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier.padding(horizontal = 24.dp),
-                    )
-                    PrimaryTabRow(
-                        selectedTabIndex = if (pickerShowsTime) 1 else 0,
-                    ) {
-                        Tab(
-                            selected = !pickerShowsTime,
-                            onClick = { pickerShowsTime = false },
-                            text = { Text(stringResource(R.string.date)) },
-                        )
-                        Tab(
-                            selected = pickerShowsTime,
-                            onClick = { pickerShowsTime = true },
-                            text = { Text(stringResource(R.string.time)) },
-                        )
-                    }
-                    if (pickerShowsTime) {
-                        TimePicker(
-                            timeState,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        DatePicker(
-                            dateState,
-                            modifier = Modifier.fillMaxWidth(),
-                            showModeToggle = true,
-                        )
-                    }
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = { showDateTimePicker = false }) { Text(stringResource(R.string.cancel)) }
-                        TextButton(onClick = {
-                            val date =
-                                dateState.selectedDateMillis?.let {
-                                    java.time.Instant
-                                        .ofEpochMilli(it)
-                                        .atZone(ZoneOffset.UTC)
-                                        .toLocalDate()
-                                }
-                                    ?: current.input.date
-                            model.updateEditor {
-                                it.copy(
-                                    dateText = null,
-                                    timeText = null,
-                                    input = it.input.copy(date = date, time = LocalTime.of(timeState.hour, timeState.minute)),
-                                )
-                            }
-                            showDateTimePicker = false
-                        }) { Text(stringResource(R.string.done)) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AmountControl(
-    label: String,
-    currency: BookCurrency?,
-    text: String,
-    allowSign: Boolean,
-    negative: Boolean,
-    enabled: Boolean,
-    change: (String) -> Unit,
-    sign: () -> Unit,
-    choose: ((BookCurrency) -> Unit)?,
-    small: Boolean = false,
-) {
-    var open by remember { mutableStateOf(false) }
-    val signAction = stringResource(if (negative) R.string.make_amount_positive else R.string.make_amount_negative)
-    val currencyName = stringResource(R.string.currency_name)
-    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (allowSign) {
-            OutlinedIconButton(
-                onClick = sign,
-                enabled = enabled,
-                shape = CircleShape,
-                border = ButtonDefaults.outlinedButtonBorder(enabled),
-                modifier = Modifier.semantics { contentDescription = signAction },
-            ) {
-                Text(
-                    if (negative) "−" else "+",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.clearAndSetSemantics {},
-                )
-            }
-        }
-        BasicTextField(
-            text,
-            change,
-            enabled = enabled,
-            singleLine = true,
-            textStyle =
-                MaterialTheme.typography.headlineLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.End,
-                ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = 48.dp)
-                    .testTag("field-$label")
-                    .semantics { contentDescription = label },
-            decorationBox = { field ->
-                Box(contentAlignment = Alignment.CenterEnd) {
-                    if (text.isEmpty()) {
-                        Text(
-                            "0",
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    field()
-                }
-            },
-        )
-        TextButton(
-            onClick = { open = true },
-            enabled = choose != null,
-            modifier =
-                Modifier.testTag("transaction-currency").semantics {
-                    contentDescription = "$currencyName: ${currency?.code.orEmpty()}"
-                },
-            colors =
-                ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    disabledContentColor = MaterialTheme.colorScheme.secondary,
-                ),
-        ) { Text(currency?.code.orEmpty()) }
-    }
-    val invalid = text.isNotBlank() && (currency == null || runCatching { currency.parseMinor(text) }.getOrNull()?.let { it <= 0 } != false)
-    if (invalid) {
-        Text(
-            stringResource(R.string.amount_error),
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall,
+            dismissButton = { TextButton(onClick = clearPendingKind) { Text(stringResource(R.string.cancel)) } },
         )
     }
-    if (open && choose != null) {
-        CurrencySheet({ open = false }) {
-            choose(it)
-            open = false
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CurrencySheet(
-    close: () -> Unit,
-    choose: (BookCurrency) -> Unit,
-) {
-    var query by remember { mutableStateOf("") }
-    val currencies = remember { Currency.getAvailableCurrencies().filter { it.defaultFractionDigits in 0..3 }.sortedBy { it.currencyCode } }
-    ModalBottomSheet(onDismissRequest = close) {
-        Column(Modifier.padding(16.dp).imePadding()) {
-            OutlinedTextField(
-                query,
-                { query = it },
-                label = { Text(stringResource(R.string.currency_name)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            LazyColumn(Modifier.heightIn(max = 400.dp)) {
-                itemsIndexed(
-                    currencies.filter { it.currencyCode.contains(query, true) || it.displayName.contains(query, true) },
-                ) { _, item ->
-                    TextButton(
-                        onClick = { choose(BookCurrency(item.currencyCode, item.defaultFractionDigits)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("${item.currencyCode} · ${item.displayName}")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ItemCategory(
-    state: BookState,
-    editor: EditorInput,
-    selected: String?,
-    choose: (String?) -> Unit,
-) {
-    val kind = if (editor.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
-    val categories = state.categories.filter { !it.archived && it.kind == kind }
-    Choice(
-        R.string.category,
-        categories.find { it.id == selected }?.name ?: stringResource(R.string.uncategorized),
-        listOf(null to stringResource(R.string.uncategorized)) + categories.map { it.id to it.name },
-        editorRow = true,
-        change = choose,
-    )
-}
-
-@Composable
-private fun reconciliation(
-    editor: EditorInput,
-    accounts: List<Account>,
-    categories: List<Category>,
-): String {
-    val currency = editor.transactionCurrency ?: return stringResource(R.string.amounts_pending)
-    val values =
-        editor.input.receiptLines.map { line ->
-            runCatching { currency.parseMinor(editor.lineTexts[line.id].orEmpty()) }.getOrNull()?.takeIf {
-                it >
-                    0
-            }
-        }
-    val sum =
-        if (values.any {
-                it == null
-            }
-        ) {
-            null
-        } else {
-            runCatching { values.fold(0L) { total, value -> Math.addExact(total, value!!) } }.getOrNull()
-        }
-    val target =
-        runCatching { Math.absExact(currency.parseMinor(editor.mainText(accounts))) }
-            .getOrNull()
-            ?.takeIf { it > 0 }
-    val expectedCategoryKind = if (editor.input.kind == EntryKind.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
-    val allocations = editor.input.allocations.associateBy { it.id }
-    val categoriesValid =
-        editor.input.receiptLines.size == allocations.size &&
-            editor.input.receiptLines.all { line ->
-                val allocation = allocations[line.id] ?: return@all false
-                val categoryId = allocation.categoryId
-                categoryId == null || categories.any { it.id == categoryId && !it.archived && it.kind == expectedCategoryKind }
-            }
-    val status =
-        when {
-            sum == null || target == null -> stringResource(R.string.amounts_pending)
-            sum != target -> stringResource(R.string.totals_mismatch)
-            !categoriesValid -> stringResource(R.string.item_categories_error)
-            else -> stringResource(R.string.totals_match)
-        }
-    val account = accounts.find { it.id == editor.input.accountId }
-    val allocation =
-        if (editor.input.amountMinor == null && currency != account?.currency) {
-            stringResource(R.string.account_allocation_pending)
-        } else {
-            ""
-        }
-    return pluralStringResource(
-        R.plurals.item_reconciliation,
-        editor.input.receiptLines.size,
-        editor.input.receiptLines.size,
-        currency.code,
-        sum?.let(currency::formatMinor) ?: "?",
-        target?.let(currency::formatMinor) ?: "?",
-        status,
-        allocation,
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TransactionItemsScreen(
-    state: BookState,
-    model: TransactionEditorStateOwner,
-    editor: EntryEditorState,
-) {
-    val current = editor.input
-    val accounts = state.accounts.map { it.account }
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val moveUp = stringResource(R.string.move_up)
-    val moveDown = stringResource(R.string.move_down)
-    val itemDeleted = stringResource(R.string.item_deleted)
-    val undo = stringResource(R.string.undo)
-    val uncategorized = stringResource(R.string.uncategorized)
-    val transactionTitle = if (current.input.merchant.isBlank()) stringResource(R.string.new_transaction) else current.input.merchant
-    Column(
-        Modifier
-            .fillMaxSize()
-            .wrapContentWidth()
-            .widthIn(max = EditorMaxWidth)
-            .fillMaxWidth(),
-    ) {
-        Text(
-            transactionTitle,
-            Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.titleMedium,
+    // A stale edit cannot be merged; the only way forward is to reopen the current record.
+    if (editor.error == R.string.conflict_message) {
+        AlertDialog(
+            // Dismissing keeps the form so its values can still be read before going back.
+            onDismissRequest = model::dismissError,
+            title = { Text(stringResource(R.string.record_changed)) },
+            text = { Text(stringResource(R.string.conflict_message)) },
+            confirmButton = { TextButton(onClick = model::abandonEditor) { Text(stringResource(R.string.go_back)) } },
         )
-        Text(
-            "${current.input.date} · ${current.input.time.toString().take(5)}",
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        LazyColumn(Modifier.weight(1f)) {
-            itemsIndexed(current.input.receiptLines, key = { _, line -> line.id }) { index, line ->
-                val category = state.categories.find { it.id == current.input.allocations[index].categoryId }?.name ?: uncategorized
-                val moveItemDescription = stringResource(R.string.move_item, line.description.ifBlank { category })
-                val deleteItemDescription = stringResource(R.string.delete_item, index + 1)
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val color = MaterialTheme.colorScheme.onSurfaceVariant
-                    var drag by remember(line.id) { mutableStateOf(0f) }
-                    Canvas(
-                        Modifier
-                            .size(48.dp)
-                            .semantics {
-                                contentDescription = moveItemDescription
-                                customActions =
-                                    listOf(
-                                        CustomAccessibilityAction(moveUp) {
-                                            model.updateEditor { it.moveItem(line.id, -1, accounts) }
-                                            true
-                                        },
-                                        CustomAccessibilityAction(moveDown) {
-                                            model.updateEditor { it.moveItem(line.id, 1, accounts) }
-                                            true
-                                        },
-                                    )
-                            }.pointerInput(line.id) {
-                                detectDragGestures(
-                                    onDragStart = { drag = 0f },
-                                    onDragEnd = { drag = 0f },
-                                    onDragCancel = { drag = 0f },
-                                ) { change, amount ->
-                                    change.consume()
-                                    drag += amount.y
-                                    val threshold = 56.dp.toPx()
-                                    if (kotlin.math.abs(drag) >=
-                                        threshold
-                                    ) {
-                                        model.updateEditor { it.moveItem(line.id, if (drag > 0) 1 else -1, accounts) }
-                                        drag = 0f
-                                    }
-                                }
-                            },
-                    ) {
-                        for (offset in listOf(-6f, 0f, 6f)) {
-                            drawLine(
-                                color,
-                                Offset(size.width * .32f, size.height / 2 + offset),
-                                Offset(size.width * .68f, size.height / 2 + offset),
-                                2f,
-                            )
-                        }
-                    }
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .heightIn(min = 64.dp)
-                            .clickable {
-                                model.showItem(line.id)
-                            }.semantics(mergeDescendants = true) {},
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(line.description.ifBlank { category }, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            if (line.description.isNotBlank()) {
-                                Text(
-                                    category,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        Text(
-                            "${current.transactionCurrency?.code.orEmpty()} ${current.lineTexts[line.id].orEmpty().ifBlank { "—" }}",
-                            textAlign = TextAlign.End,
-                            modifier = Modifier.widthIn(max = 160.dp),
-                        )
-                    }
-                    IconButton(onClick = {
-                        val removedRow = current.input.allocations[index]
-                        val text = current.lineTexts[line.id].orEmpty()
-                        model.updateEditor { it.removeItem(line.id, accounts) }
-                        scope.launch {
-                            if (snackbar.showSnackbar(itemDeleted, undo, duration = SnackbarDuration.Short) ==
-                                SnackbarResult.ActionPerformed
-                            ) {
-                                model.updateEditor { latest ->
-                                    val lines = latest.input.receiptLines.toMutableList()
-                                    val rows = if (lines.isEmpty()) mutableListOf() else latest.input.allocations.toMutableList()
-                                    val at = index.coerceAtMost(lines.size)
-                                    lines.add(at, line)
-                                    rows.add(at, removedRow)
-                                    latest.copy(
-                                        input = latest.input.copy(receiptLines = lines, allocations = rows),
-                                        lineTexts =
-                                            latest.lineTexts + (line.id to text),
-                                    )
-                                }
-                            }
-                        }
-                    }, modifier = Modifier.semantics { contentDescription = deleteItemDescription }) {
-                        Text(
-                            "×",
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                    }
-                }
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            }
-            item {
-                TextButton(onClick = {
-                    model.updateEditor { it.addItem(accounts) }
-                    model.showItem(
-                        model.editor.value
-                            ?.input
-                            ?.input
-                            ?.receiptLines
-                            ?.lastOrNull()
-                            ?.id,
-                    )
-                }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(stringResource(R.string.add_item)) }
-            }
-        }
-        SnackbarHost(snackbar)
-        HorizontalDivider()
-        Text(
-            reconciliation(current, accounts, state.categories),
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Button(onClick = {
-            model.showItems(false)
-        }, modifier = Modifier.fillMaxWidth().padding(16.dp).heightIn(min = 48.dp)) { Text(stringResource(R.string.done)) }
-    }
-    val item = current.input.receiptLines.find { it.id == editor.itemId }
-    if (item != null) {
-        ModalBottomSheet(onDismissRequest = {
-            model.showItem(null)
-        }) {
-            Column(Modifier.padding(16.dp).imePadding().verticalScroll(rememberScrollState())) {
-                Text(stringResource(R.string.item), style = MaterialTheme.typography.titleLarge)
-                Field(R.string.transaction_title, item.description, { text ->
-                    model.updateEditor {
-                        it.copy(
-                            input =
-                                it.input.copy(
-                                    receiptLines =
-                                        it.input.receiptLines.map { line ->
-                                            if (line.id ==
-                                                item.id
-                                            ) {
-                                                line.copy(description = text)
-                                            } else {
-                                                line
-                                            }
-                                        },
-                                ),
-                        )
-                    }
-                })
-                ItemCategory(
-                    state,
-                    current,
-                    current.input.allocations
-                        .find { it.id == item.id }
-                        ?.categoryId,
-                ) { id ->
-                    model.updateEditor {
-                        it.copy(
-                            input =
-                                it.input.copy(
-                                    allocations =
-                                        it.input.allocations.map { row ->
-                                            if (row.id ==
-                                                item.id
-                                            ) {
-                                                row.copy(categoryId = id)
-                                            } else {
-                                                row
-                                            }
-                                        },
-                                ),
-                        )
-                    }
-                }
-                AmountControl(
-                    stringResource(R.string.amount),
-                    currency = current.transactionCurrency,
-                    text = current.lineTexts[item.id].orEmpty(),
-                    allowSign = false,
-                    negative = false,
-                    enabled = true,
-                    change = { text -> model.updateEditor { it.copy(lineTexts = it.lineTexts + (item.id to text)) } },
-                    sign = {},
-                    choose = null,
-                    small = true,
-                )
-                TextButton(onClick = {
-                    model.showItem(null)
-                }, modifier = Modifier.fillMaxWidth().testTag("transaction-item-done")) { Text(stringResource(R.string.done)) }
-            }
-        }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun OptionalSelectionRows(
-    state: BookState,
-    bookModel: BookViewModel,
-    model: TransactionEditorStateOwner,
-    current: EditorInput,
-) {
-    var showTagPicker by remember(current.id) { mutableStateOf(false) }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val selectedTags = current.input.tagIds.mapNotNull { tagId -> state.tags.find { it.id == tagId }?.name }
-    EditorActionRow(stringResource(R.string.tags), selectedTags.joinToString(), onClick = {
-        keyboardController?.hide()
-        showTagPicker =
-            true
-    })
-    if (showTagPicker) {
-        ModalBottomSheet(onDismissRequest = { showTagPicker = false }) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .heightIn(max = 560.dp)
-                    .padding(horizontal = 24.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    Text(stringResource(R.string.tags), style = MaterialTheme.typography.titleLarge)
-                    TextButton(
-                        onClick = { showTagPicker = false },
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("entry-tag-picker-done"),
-                    ) {
-                        Text(stringResource(R.string.done))
-                    }
-                }
-                val availableTags = state.tags.filter { !it.archived || it.id in current.input.tagIds }
-                LazyColumn(
-                    Modifier.weight(1f, fill = false).heightIn(max = 480.dp).testTag("entry-tag-picker-list"),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    items(availableTags, key = { it.id }) { tag ->
-                        val checked = tag.id in current.input.tagIds
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .testTag("entry-tag-${tag.id}")
-                                .selectable(checked, role = Role.Checkbox) {
-                                    model.updateEditor { editor ->
-                                        editor.copy(
-                                            input =
-                                                editor.input.copy(
-                                                    tagIds =
-                                                        if (checked) {
-                                                            editor.input.tagIds - tag.id
-                                                        } else {
-                                                            editor.input.tagIds +
-                                                                tag.id
-                                                        },
-                                                ),
-                                        )
-                                    }
-                                },
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        ) {
-                            Checkbox(checked, onCheckedChange = null)
-                            Text(tag.name)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    var showRelatedPicker by remember(current.id) { mutableStateOf(false) }
-    var relatedQuery by remember(current.id) { mutableStateOf("") }
-    HorizontalDivider()
-    val relatedRecords = (state.relatedEntries).distinctBy { it.id }
-    val relatedNames =
-        current.input.relatedEntryIds.mapNotNull { id ->
-            relatedRecords.find { it.id == id }?.let { it.input.merchant.ifBlank { it.input.kind.name } }
-        }
-    val relatedSummary =
-        when {
-            current.input.relatedEntryIds.isEmpty() -> null
-            relatedNames.size == current.input.relatedEntryIds.size -> relatedNames.joinToString()
-            else -> stringResource(R.string.related_count, current.input.relatedEntryIds.size)
-        }
-    EditorActionRow(stringResource(R.string.related_transactions), relatedSummary, onClick = {
-        keyboardController?.hide()
-        showRelatedPicker =
-            true
-    })
-    LaunchedEffect(showRelatedPicker, relatedQuery, current.input.relatedEntryIds) {
-        if (showRelatedPicker) bookModel.searchRelatedEntries(relatedQuery, current.input.relatedEntryIds)
-    }
-    if (showRelatedPicker) {
-        ModalBottomSheet(onDismissRequest = { showRelatedPicker = false }) {
-            Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 24.dp)) {
-                Text(stringResource(R.string.related_transactions), style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(
-                    relatedQuery,
-                    { relatedQuery = it },
-                    label = { Text(stringResource(R.string.search_related)) },
-                    singleLine = true,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                            .testTag("field-${stringResource(R.string.search_related)}"),
-                )
-                state.relatedError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
-                val candidates =
-                    (
-                        state.relatedEntries
-                    ).distinctBy { it.id }
-                        .filter {
-                            it.id != current.entryId &&
-                                (it.status == EntryStatus.POSTED || it.id in current.input.relatedEntryIds)
-                        }
-                LazyColumn(Modifier.heightIn(max = 440.dp)) {
-                    items(candidates, key = { it.id }) { related ->
-                        val checked = related.id in current.input.relatedEntryIds
-                        val enabled = related.status == EntryStatus.POSTED || checked
-                        val relatedAccount = state.accounts.find { it.account.id == related.input.accountId }?.account
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 56.dp)
-                                .testTag("related-entry-${related.id}")
-                                .selectable(checked, enabled = enabled, role = Role.Checkbox) {
-                                    model.updateEditor { editor ->
-                                        editor.copy(
-                                            input =
-                                                editor.input.copy(
-                                                    relatedEntryIds =
-                                                        if (checked) {
-                                                            editor.input.relatedEntryIds - related.id
-                                                        } else {
-                                                            editor.input.relatedEntryIds + related.id
-                                                        },
-                                                ),
-                                        )
-                                    }
-                                },
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        ) {
-                            Checkbox(checked, onCheckedChange = null, enabled = enabled)
-                            Column {
-                                Text(
-                                    related.input.merchant.ifBlank { related.input.kind.name },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
-                                Text(
-                                    "${related.input.date} · ${relatedAccount?.currency?.code.orEmpty()} " +
-                                        relatedAccount?.currency?.formatMinor(related.input.amountMinor ?: 0L).orEmpty(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                    }
-                    if (candidates.isEmpty() && !state.relatedLoading) {
-                        item { Text(stringResource(R.string.no_related_transactions), Modifier.padding(vertical = 16.dp)) }
-                    }
-                    if (state.relatedLoading) item { CircularProgressIndicator(Modifier.padding(16.dp)) }
-                    if (state.relatedNext != null && !state.relatedLoading) {
-                        item {
-                            TextButton(onClick = bookModel::loadMoreRelatedEntries, modifier = Modifier.heightIn(min = 48.dp)) {
-                                Text(stringResource(R.string.load_more))
-                            }
-                        }
-                    }
-                }
-                TextButton(
-                    onClick = {
-                        showRelatedPicker = false
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text(stringResource(R.string.done))
-                }
-            }
-        }
-    }
-}
-
-private val EditorMaxWidth = 640.dp
-
-// Keeps each tab label on one line at large font scales instead of breaking mid-word.
-private val TabLabelAutoSize = TextAutoSize.StepBased(minFontSize = 8.sp)

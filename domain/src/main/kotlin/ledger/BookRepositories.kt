@@ -19,6 +19,13 @@ data class BookSettings(
     val setupComplete: Boolean = false,
 )
 
+/** Replaces a known balance with a new one by posting the difference as one adjustment. */
+data class BalanceAdjustment(
+    val expectedBalanceMinor: Long,
+    val newBalanceMinor: Long,
+    val note: String = "",
+)
+
 interface AccountRepository {
     suspend fun list(): LedgerResult<List<AccountBalance>>
 
@@ -30,10 +37,23 @@ interface AccountRepository {
         openingMinor: Long? = null,
     ): LedgerResult<Account>
 
+    /** Saves [account] and posts [adjustment] atomically. A balance other than the expected one is a conflict. */
+    suspend fun saveWithAdjustment(
+        account: Account,
+        expected: Account,
+        adjustment: BalanceAdjustment,
+    ): LedgerResult<Account>
+
     suspend fun saveGroup(
         group: AccountGroup,
         expected: AccountGroup? = null,
     ): LedgerResult<AccountGroup>
+
+    /** Stores the listed order atomically. Each list must name every stored group or account exactly once. */
+    suspend fun reorder(
+        groupIds: List<String>,
+        accountIds: List<String>,
+    ): LedgerResult<Unit>
 
     suspend fun adjust(
         accountId: String,

@@ -68,6 +68,18 @@ internal interface LedgerDao {
 
     @androidx.room.Update suspend fun updateGroup(row: AccountGroupRow)
 
+    @Query("UPDATE account_groups SET position = :position WHERE id = :id")
+    suspend fun setGroupPosition(
+        id: String,
+        position: Int,
+    )
+
+    @Query("UPDATE accounts SET position = :position WHERE id = :id")
+    suspend fun setAccountPosition(
+        id: String,
+        position: Int,
+    )
+
     @androidx.room.Update suspend fun updateCategory(row: CategoryRow)
 
     @Query("SELECT count(*) FROM allocations WHERE categoryId = :id")
@@ -153,6 +165,22 @@ internal interface LedgerDao {
     )
     suspend fun balances(): List<BalanceRow>
 
+    @Query("SELECT * FROM entries WHERE id IN (:ids) AND status = 'POSTED'")
+    suspend fun postedEntries(ids: List<String>): List<EntryRow>
+
+    @Query(
+        """SELECT p.entryId, p.accountId, p.amountMinor FROM entries e JOIN postings p ON p.entryId = e.id
+        WHERE e.status = 'POSTED' AND p.accountId IN (:accountIds)
+        AND (e.date > :date OR (e.date = :date AND e.time > :time) OR (e.date = :date AND e.time = :time AND e.id >= :id))
+        ORDER BY e.date DESC, e.time DESC, e.id DESC""",
+    )
+    suspend fun postingsSince(
+        accountIds: List<String>,
+        date: String,
+        time: String,
+        id: String,
+    ): List<PostingRow>
+
     @Query(
         "SELECT a.currency, a.scale, SUM(CASE WHEN e.kind = 'INCOME' THEN CASE WHEN e.amountMinor < 0 THEN -c.amountMinor ELSE c.amountMinor END ELSE 0 END) AS incomeMinor, SUM(CASE WHEN e.kind = 'EXPENSE' THEN CASE WHEN e.amountMinor > 0 THEN -c.amountMinor ELSE c.amountMinor END ELSE 0 END) AS expenseMinor, 0 AS refundMinor FROM allocations c JOIN entries e ON c.entryId = e.id JOIN accounts a ON a.id = e.accountId WHERE e.status = 'POSTED' AND e.date BETWEEN :start AND :end GROUP BY a.currency, a.scale",
     )
@@ -203,7 +231,7 @@ internal interface LedgerDao {
     @Query(
         """SELECT e.* FROM entries e WHERE e.status = :status
         AND (:from IS NULL OR e.date >= :from) AND (:through IS NULL OR e.date <= :through)
-        AND (:kind IS NULL OR e.kind = :kind)
+        AND (:kind IS NULL OR e.kind = :kind OR e.kind = :alsoKind)
         AND (:accountId IS NULL OR EXISTS (SELECT 1 FROM postings p WHERE p.entryId = e.id AND p.accountId = :accountId))
         AND (:categoryId IS NULL OR EXISTS (
             SELECT 1 FROM allocations al LEFT JOIN categories c ON c.id = al.categoryId
@@ -224,6 +252,7 @@ internal interface LedgerDao {
         from: String?,
         through: String?,
         kind: String?,
+        alsoKind: String?,
         accountId: String?,
         categoryId: String?,
         tagId: String?,

@@ -28,6 +28,8 @@ import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerResult
 import moe.frost.kochenite.domain.ledger.SavedEntry
 import moe.frost.kochenite.domain.ledger.Tag
+import moe.frost.kochenite.reports.ReportStateOwner
+import moe.frost.kochenite.transactions.list.TransactionQuery
 import java.time.LocalDate
 
 data class BookState(
@@ -62,6 +64,13 @@ internal class BookViewModel(
     private var detailJob: Job? = null
     private val completed = Channel<String>(Channel.BUFFERED)
     val saved = completed.receiveAsFlow()
+    private val trashedEntries = Channel<SavedEntry>(Channel.BUFFERED)
+
+    /** Entries just moved to trash, so the shell can offer Undo. */
+    val trashed = trashedEntries.receiveAsFlow()
+
+    /** Owned here rather than by the Transactions screen so Overview and Reports can drill down into it. */
+    val transactionQuery = MutableStateFlow(TransactionQuery())
     private var bookServices: moe.frost.kochenite.domain.ledger.BookServices? = null
     val accountManagement =
         AccountStateOwner(
@@ -85,6 +94,7 @@ internal class BookViewModel(
     val transactionList =
         moe.frost.kochenite.transactions.list
             .TransactionListStateOwner(viewModelScope, { bookServices?.reader })
+    val reports = ReportStateOwner(viewModelScope) { bookServices?.reader }
     val transactionEditor =
         moe.frost.kochenite.transactions.editor.TransactionEditorStateOwner(
             viewModelScope,
@@ -175,6 +185,7 @@ internal class BookViewModel(
         }
         mutable.value = next.copy(error = null)
         if (Part.LEDGER in load) transactionList.refresh()
+        if (Part.TOTALS in load) reports.refresh()
     }
 
     private companion object {
@@ -218,13 +229,13 @@ internal class BookViewModel(
         }
     }
 
+    /** The first account's currency becomes the dashboard currency; Settings can change it later. */
     fun setup(
         account: Account,
         opening: Long,
-        display: BookCurrency,
         starter: Boolean,
     ) = mutate(ALL_PARTS) {
-        it.settings.finishSetup(account, opening, display, starter)
+        it.settings.finishSetup(account, opening, account.currency, starter)
     }
 
     // Reparenting changes which entries a parent-category filter matches.
@@ -236,11 +247,11 @@ internal class BookViewModel(
     fun saveTag(
         tag: Tag,
         old: Tag?,
-    ) = mutate(setOf(Part.TAGS)) { it.tags.save(tag, old) }
+    ) = mutate(setOf(Part.TAGS), closeOnSuccess = false) { it.tags.save(tag, old) }
 
     fun saveTemplate(template: EntryTemplate) = mutate(setOf(Part.TEMPLATES)) { it.templates.saveTemplate(template) }
 
-    fun deleteTemplate(id: String) = mutate(setOf(Part.TEMPLATES)) { it.templates.deleteTemplate(id) }
+    fun deleteTemplate(id: String) = mutate(setOf(Part.TEMPLATES), closeOnSuccess = false) { it.templates.deleteTemplate(id) }
 
     fun bulkCategorize(
         selections: List<AllocationSelection>,
@@ -308,7 +319,7 @@ internal class BookViewModel(
             }
     }
 
-    fun display(currency: BookCurrency) = mutate(setOf(Part.SETTINGS)) { it.settings.setDisplayCurrency(currency) }
+    fun display(currency: BookCurrency) = mutate(setOf(Part.SETTINGS), closeOnSuccess = false) { it.settings.setDisplayCurrency(currency) }
 
     fun deleteIncomplete(
         id: String,
@@ -335,9 +346,16 @@ internal class BookViewModel(
             }
     }
 
-    fun trashEntry(entry: SavedEntry) = mutate(ENTRY_PARTS) { it.editor.trash(entry.id, entry.token) }
+    fun trashEntry(entry: SavedEntry) =
+        mutate(ENTRY_PARTS) { book ->
+            book.editor.trash(entry.id, entry.token).also { if (it is LedgerResult.Success) trashedEntries.send(it.value) }
+        }
 
-    fun restoreEntry(entry: SavedEntry) = mutate(ENTRY_PARTS) { it.editor.restore(entry.id, entry.token) }
+    /** [close] is false when restoring from the Undo snackbar, where no detail screen is open. */
+    fun restoreEntry(
+        entry: SavedEntry,
+        close: Boolean = true,
+    ) = mutate(ENTRY_PARTS, closeOnSuccess = close) { it.editor.restore(entry.id, entry.token) }
 
     fun purgeEntry(entry: SavedEntry) = mutate(ENTRY_PARTS) { it.editor.purge(entry.id, entry.token) }
 }

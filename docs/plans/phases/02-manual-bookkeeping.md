@@ -176,9 +176,66 @@ verified commits and keep dated results only in the worklog.
 - Prerequisite for real use: off-machine signing-key backup and recovery check.
 - Save refresh scoping and grouped account balances: verified; see the [performance fix evidence](../../worklogs/02-manual-bookkeeping.md#save-refresh-and-balance-query-performance--september-27-2026). Search scans, related-picker debounce and list recomposition costs remain open.
 - Release builds work with the configuration cache and the APK check allows only the diagnostics `INTERNET` permission; see the [build fix evidence](../../worklogs/02-manual-bookkeeping.md#release-build-and-apk-check-fixes--september-30-2026).
-- Open editor limitations: live TalkBack, real edge-swipe/predictive Back and a physical wide device remain unchecked; dates display as ISO text rather than locale-formatted; the theme uses default Material colours rather than the planned teal accents. See the [visual acceptance evidence](../../worklogs/02-manual-bookkeeping.md#editor-visual-acceptance--september-30-2026).
-- Full-app Material 3 redesign: a design proposal exists in [Figma](https://www.figma.com/design/0nD5HHluRn8UPxUbjJrK0n) (teal M3 tokens with Light/Dark modes, component library, all current screens, tablet list-detail); see the [redesign record](../../worklogs/02-manual-bookkeeping.md#material-3-redesign-in-figma--september-30-2026). It includes the user's review changes (symbols, Bluecoins-style rows with running balances, flat editor, opening balances as adjustments, currency chosen from the amount control, inline balance adjustment on Edit account). Nothing is implemented yet; adopting it in Compose needs a user decision on scope and timing.
-- Next: begin 2.7 reports and current-rate estimates.
+- Open UI limitations: live TalkBack, real edge-swipe/predictive Back and a physical wide device remain unchecked.
+- Full-app Material 3 redesign: implemented from the [Figma design](https://www.figma.com/design/0nD5HHluRn8UPxUbjJrK0n) on September 30 at the user's request; see [Material 3 redesign implementation](#material-3-redesign-implementation).
+- Reports already show a chosen month and currency with category breakdown and drill-down. 2.7 still owes current-rate estimates, rate caching and overrides, date ranges other than calendar months, and its reconciliation tests.
+- Next: begin 2.7 current-rate estimates.
+
+## Material 3 redesign implementation
+
+The Figma file is the visual source: teal M3 colour roles in Light and Dark,
+finance and chart colours, its Material icons, and every compact screen, the
+dark key screens and the expanded list-detail layouts. The design record is in
+the [worklog](../../worklogs/02-manual-bookkeeping.md#material-3-redesign-in-figma--september-30-2026).
+Stored schema version 7 and all financial semantics stay unchanged.
+
+Deliverables:
+
+- Theme and assets: colour schemes and finance/chart colours from the Figma
+  variables; the Figma icons as vector drawables; currency-symbol, grouped,
+  locale-aware money display (input and storage stay exact).
+- Shared components: amount input with sign toggle and currency pill, ledger
+  row, notice, empty state, grouped list cards, dropdown fields, currency sheet.
+- Screens: setup and storage states; navigation bar/rail shell with per-screen
+  app bars; Overview; Transactions with search bar, status chips, removable
+  filter chips, filter sheet, bulk categorize mode and overflow menu; detail
+  with trash actions; flat editor with items, item sheet, combined date/time
+  dialog, tags and related sheets and dialogs; Accounts, account forms, Groups
+  & order; Reports for a chosen month and currency with category breakdown,
+  table alternative and drill-down; Settings, Categories, Tags, Templates.
+- Expanded windows: rail with the Add action, list-detail for Transactions and
+  Accounts, two-column Overview.
+
+Data and API changes (no schema change):
+
+- `LedgerReader.runningBalances` returns the account balance after each listed
+  posted entry, computed from current balances and newer postings in one pass.
+- `AccountRepository.saveWithAdjustment` saves account fields and posts the
+  balance difference as one adjustment atomically, rejecting a stale balance.
+  `AccountRepository.reorder` stores group and account order atomically.
+- The Adjustment kind filter also matches opening balances, which are shown as
+  adjustments. Starter categories become Groceries, Dining, Transport,
+  Household and Salary for new books only.
+- Setup uses the first account's currency as the dashboard currency; it stays
+  changeable in Settings.
+
+Accepted limits of this work: category icons are chosen from the category name
+because categories store no icon; Attachment, From receipt and backup/restore
+stay disabled placeholders; Reports use existing totals only (rates and current
+estimates remain 2.7); motion and predictive Back are not designed.
+
+Tests: JVM tests for money display and running balances; device tests for
+running balances, reorder and save-with-adjustment; updated UI journeys for
+setup, editor, items, discard, incomplete and navigation; `./gradlew verify`;
+light/dark and compact/expanded visual comparison with the Figma frames on the
+phone.
+
+Exit: every Figma screen has a Compose counterpart or a recorded limit above,
+all earlier device checks still pass with the new UI, and the visual comparison
+and its gaps are recorded in the worklog.
+
+- Status: implemented and verified with `./gradlew verify` and 49 physical-device checks; see the [implementation evidence](../../worklogs/02-manual-bookkeeping.md#material-3-redesign-implementation--september-30-2026). The exit criteria are met with the recorded differences and gaps.
+- Open: live TalkBack, a physical tablet, the release build on a device, dark theme on every screen, and screenshots of the Templates, Save as template and Tags screens. Running-balance cost at 50,000 records is measured in 2.9.
 
 ## Transaction editor redesign
 

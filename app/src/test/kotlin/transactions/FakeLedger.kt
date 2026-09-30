@@ -16,6 +16,7 @@ import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerPage
 import moe.frost.kochenite.domain.ledger.LedgerReader
 import moe.frost.kochenite.domain.ledger.LedgerResult
+import moe.frost.kochenite.domain.ledger.RunningBalance
 import moe.frost.kochenite.domain.ledger.SavedEntry
 import java.time.LocalDate
 import java.time.LocalTime
@@ -60,6 +61,8 @@ internal open class FakeLedger :
         start: LocalDate,
         end: LocalDate,
     ): LedgerResult<List<CategoryTotal>> = LedgerResult.Success(emptyList())
+
+    override suspend fun runningBalances(entryIds: List<String>): LedgerResult<List<RunningBalance>> = LedgerResult.Success(emptyList())
 
     override suspend fun page(
         status: EntryStatus,

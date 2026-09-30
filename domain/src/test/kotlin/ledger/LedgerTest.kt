@@ -41,6 +41,31 @@ class LedgerTest {
         assertFailsWith<IllegalArgumentException> { BookCurrency("usd", 2) }
     }
 
+    @Test fun runningBalancesWalkBackFromCurrentBalancesPerAccount() {
+        val newestFirst =
+            listOf(
+                LedgerPosting("refund", "cash", 230),
+                LedgerPosting("transfer", "cash", -5000),
+                LedgerPosting("transfer", "card", 5000),
+                LedgerPosting("purchase", "card", -640),
+                LedgerPosting("opening", "cash", 10000),
+            )
+        assertEquals(
+            listOf(
+                RunningBalance("refund", "cash", 5230),
+                RunningBalance("transfer", "cash", 5000),
+                RunningBalance("transfer", "card", 4360),
+                RunningBalance("purchase", "card", -640),
+                RunningBalance("opening", "cash", 10000),
+            ),
+            runningBalances(mapOf("cash" to 5230L, "card" to 4360L), newestFirst),
+        )
+        assertEquals(listOf(RunningBalance("a", "unknown", 0)), runningBalances(emptyMap(), listOf(LedgerPosting("a", "unknown", 5))))
+        assertFailsWith<ArithmeticException> {
+            runningBalances(mapOf("cash" to Long.MIN_VALUE), listOf(LedgerPosting("a", "cash", 1), LedgerPosting("b", "cash", 1)))
+        }
+    }
+
     @Test fun expenseAndIncomeSignsAndSignedAdjustmentsProduceExpectedPostings() {
         for ((kind, amount, expected) in listOf(
             Triple(EntryKind.EXPENSE, -1234L, -1234L),

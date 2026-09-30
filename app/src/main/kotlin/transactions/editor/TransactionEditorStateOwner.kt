@@ -205,6 +205,17 @@ internal class TransactionEditorStateOwner(
         action?.invoke()
     }
 
+    fun dismissError() {
+        mutableEditor.value = mutableEditor.value?.copy(error = null)
+    }
+
+    /** Drops the editor without confirmation; its route closes once it observes the missing state. */
+    fun abandonEditor() {
+        if (mutableEditor.value?.saving == true) return
+        leaveEditor = null
+        mutableEditor.value = null
+    }
+
     fun confirmEditor(allowIncomplete: Boolean = false) {
         val old = mutableEditor.value ?: return
         if (old.saving) return

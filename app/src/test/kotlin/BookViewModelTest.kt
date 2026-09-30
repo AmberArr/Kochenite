@@ -3,6 +3,7 @@ package moe.frost.kochenite
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -16,6 +17,7 @@ import moe.frost.kochenite.domain.ledger.AccountBalance
 import moe.frost.kochenite.domain.ledger.AccountGroup
 import moe.frost.kochenite.domain.ledger.AccountRepository
 import moe.frost.kochenite.domain.ledger.AllocationSelection
+import moe.frost.kochenite.domain.ledger.BalanceAdjustment
 import moe.frost.kochenite.domain.ledger.BookCurrency
 import moe.frost.kochenite.domain.ledger.BookServices
 import moe.frost.kochenite.domain.ledger.BookSettings
@@ -113,10 +115,27 @@ class BookViewModelTest {
                         openingMinor: Long?,
                     ) = LedgerResult.Success(account)
 
+                    override suspend fun saveWithAdjustment(
+                        account: Account,
+                        expected: Account,
+                        adjustment: BalanceAdjustment,
+                    ): LedgerResult<Account> {
+                        calls += "adjustment"
+                        return LedgerResult.Success(account)
+                    }
+
                     override suspend fun saveGroup(
                         group: AccountGroup,
                         expected: AccountGroup?,
                     ) = LedgerResult.Success(group)
+
+                    override suspend fun reorder(
+                        groupIds: List<String>,
+                        accountIds: List<String>,
+                    ): LedgerResult<Unit> {
+                        calls += "reorder"
+                        return LedgerResult.Success(Unit)
+                    }
 
                     override suspend fun adjust(
                         accountId: String,
@@ -221,13 +240,39 @@ class BookViewModelTest {
             assertEquals(setOf("accounts", "groups"), book.calls.toSet())
         }
 
-    @Test fun adjustingAnAccountReloadsBalancesTotalsAndLedger() =
+    @Test fun savingAnAccountWithABalanceChangeReloadsBalancesTotalsAndLedger() =
         runTest(main) {
             val book = RecordingBook()
             val model = loadedModel(book)
-            model.accountManagement.adjust(book.account.id, 100, "")
+            model.accountManagement.saveAccount(book.account, book.account, null, BalanceAdjustment(0, 100))
             advanceUntilIdle()
-            assertEquals(setOf("accounts", "groups", "totals", "search"), book.calls.toSet())
+            assertEquals(setOf("adjustment", "accounts", "groups", "totals", "search"), book.calls.toSet())
+        }
+
+    @Test fun reorderingReloadsOnlyAccountsAndStaysOnTheScreen() =
+        runTest(main) {
+            val book = RecordingBook()
+            val model = loadedModel(book)
+            model.activeRouteId = "groups"
+            val closed = mutableListOf<String>()
+            val collector = backgroundScope.launch { model.saved.collect { closed += it } }
+            model.accountManagement.reorder(emptyList(), listOf(book.account.id))
+            advanceUntilIdle()
+            assertEquals(setOf("reorder", "accounts", "groups"), book.calls.toSet())
+            assertTrue(closed.isEmpty())
+            collector.cancel()
+        }
+
+    @Test fun trashingReportsTheTrashedEntrySoTheShellCanOfferUndo() =
+        runTest(main) {
+            val book = RecordingBook()
+            val model = loadedModel(book)
+            val trashed = mutableListOf<SavedEntry>()
+            val collector = backgroundScope.launch { model.trashed.collect { trashed += it } }
+            model.trashEntry(book.entries.single())
+            advanceUntilIdle()
+            assertEquals(listOf(EntryStatus.TRASH), trashed.map { it.status })
+            collector.cancel()
         }
 
     @Test fun trashingKeepsLoadedRowsVisibleUntilTheLedgerRefreshCompletes() =

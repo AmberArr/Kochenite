@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import moe.frost.kochenite.domain.ledger.AllocationSelection
+import moe.frost.kochenite.domain.ledger.EntryStatus
 import moe.frost.kochenite.domain.ledger.LedgerCursor
 import moe.frost.kochenite.domain.ledger.LedgerFilter
 import moe.frost.kochenite.domain.ledger.LedgerReader
@@ -20,6 +21,8 @@ internal data class TransactionListState(
     val loading: Boolean = false,
     val error: LedgerResult<Nothing>? = null,
     val selection: List<AllocationSelection> = emptyList(),
+    /** Account balance after each posted entry, keyed by entry and account. */
+    val balances: Map<Pair<String, String>, Long> = emptyMap(),
 )
 
 /** Owns the query generation, page cursor and selection as one consistent state. */
@@ -51,6 +54,7 @@ internal class TransactionListStateOwner(
                                 next = result.value.next,
                                 loading = false,
                             )
+                        loadBalances(book, version)
                     }
 
                     else -> {
@@ -58,6 +62,21 @@ internal class TransactionListStateOwner(
                     }
                 }
             }
+    }
+
+    /** Rows are already visible; their running balances follow in a second query. */
+    private suspend fun loadBalances(
+        book: LedgerReader,
+        version: Long,
+    ) {
+        val current = mutable.value
+        if (current.filter.status != EntryStatus.POSTED || current.entries.isEmpty()) {
+            mutable.value = current.copy(balances = emptyMap())
+            return
+        }
+        val result = book.runningBalances(current.entries.map { it.id })
+        if (version != generation || result !is LedgerResult.Success) return
+        mutable.value = mutable.value.copy(balances = result.value.associate { (it.entryId to it.accountId) to it.balanceMinor })
     }
 
     /**
@@ -101,6 +120,7 @@ internal class TransactionListStateOwner(
                                     entry.input.allocations.any { it.id == selected.allocationId }
                             },
                     )
+                loadBalances(book, version)
             }
     }
 
@@ -124,6 +144,7 @@ internal class TransactionListStateOwner(
                                 next = result.value.next,
                                 loading = false,
                             )
+                        loadBalances(book, version)
                     }
 
                     else -> {

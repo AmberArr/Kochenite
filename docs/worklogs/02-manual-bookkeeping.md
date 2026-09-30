@@ -978,3 +978,120 @@ Dark frames and the tablet Accounts and Overview layouts were regenerated or
 patched from the updated phone screens. Checked with Figma screenshots of
 setup, the currency sheet, both Items screens, Reports and the Accounts
 section.
+
+## Material 3 redesign implementation — September 30, 2026
+
+The user asked to follow the Figma file and implement it. The whole app now
+uses the redesign; schema version 7 and the financial rules are unchanged.
+
+What changed in the app:
+
+- Theme and assets: the light and dark colour roles, finance (income, caution)
+  and six chart colours come from the Figma variables. The 61 Figma icons were
+  downloaded as SVG and converted to vector drawables; one unused icon was
+  dropped. Amounts show the locale's currency symbol and grouping
+  (`−¥42,180`, `+$16.50`); input and storage still use exact plain decimals.
+- Shell: each screen has its own app bar. The navigation bar and the Add
+  button show only on the four top-level screens; Trash has no Add and search
+  shrinks it to an icon. Windows 840dp and wider use a rail with the Add
+  button, list-detail panes for Transactions and Accounts, and a two-column
+  Overview. Moving a transaction to trash shows an Undo snackbar.
+- Screens rebuilt to the Figma frames: setup, loading and both storage-fault
+  states; Overview; Transactions (search bar, status chips, removable filter
+  chips with a result count, filter sheet, bulk-categorize mode, overflow
+  menu, incomplete and trash tabs); detail with trash actions and the
+  permanent-delete dialog; the flat editor with amount input, date/time
+  dialog, account, category, currency, tags and related sheets, items screen
+  and item sheet, and its dialogs; Accounts, account form, Groups & order;
+  Reports; Settings, Categories, category form, Tags, Templates and Save as
+  template.
+- Behaviour that follows the design decisions: rows show the account's
+  running balance, and a transfer shows one row per side; opening balances
+  are listed as adjustments; setup and New account pick the currency from the
+  amount control and setup uses it as the dashboard currency; Edit account
+  shows the balance in the amount control and saves a changed balance as one
+  adjustment with an optional note; group and account order is changed by
+  drag handles with Move up/Move down accessibility actions; dates use locale
+  formats and future days cannot be picked; tags can be created from the
+  editor's tag sheet.
+- Reports show one month and one currency: net flow, income and spending bars,
+  spending by top-level category with a table alternative, and drill-down to
+  Transactions with the month, currency, kind and category filters.
+
+Data and API changes, with no schema change:
+
+- `LedgerReader.runningBalances` reads the postings of the listed accounts
+  from the oldest listed entry onward and walks back from current balances
+  (`runningBalances` in the domain). It avoids SQLite window functions, which
+  the platform SQLite on API 26–29 lacks.
+- `AccountRepository.saveWithAdjustment` and `reorder`; the Adjustment kind
+  filter also matches opening balances; starter categories for new books are
+  Groceries, Dining, Transport, Household and Salary.
+- The Transactions query now lives in the ViewModel (`TransactionQuery`), so
+  Overview and Reports can open Transactions with a tab or filters set.
+  Returning to the list reloads it in place instead of clearing it.
+
+Commands and results:
+
+- `./gradlew spotlessApply verify` passed: 21 domain tests, 33 app JVM tests,
+  the host script tests, Android lint for app and persistence.
+- `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+  :persistence:assembleDebugAndroidTest` passed; all three APKs were installed
+  with `-r` on the OnePlus 6T (API 35). No app data was cleared.
+- `node scripts/run-financial-tests.mjs <serial> --ui` passed 49/49: 31
+  persistence checks (three new: running balances and the adjustment filter,
+  save-with-adjustment, reorder), 11 UI journeys (two new: account balance
+  change with group creation; search, tabs and bulk mode), three new
+  first-run checks (setup with the currency pill, both storage-fault
+  screens), and the four process-restart checks.
+- `./gradlew :app:assembleRelease` passed and `scripts/check-apk.mjs` accepted
+  the debug and release APKs. The release APK was not installed or run.
+
+Visual comparison on the OnePlus 6T against the Figma frames, by screenshot:
+Overview, Transactions (posted, incomplete, trash, filter sheet, bulk mode),
+detail, editor, items, item sheet, date/time dialog, currency, tags and related
+sheets, discard dialog, Accounts, Edit account, Groups & order, Reports and
+its drill-down into filtered Transactions, Settings, Categories, setup and
+recovery. Dark theme was checked on Overview and Transactions. The
+expanded layout was checked with a temporary `wm density 300` in landscape
+(1248dp) for Overview and both list-detail screens. Font scale 2.0 was checked
+on Overview, Transactions and the editor. The phone's rotation, night mode,
+font scale and density were restored afterwards (auto-rotate on, night mode
+off, font 1.0, density 450).
+
+Defects found and fixed during the comparison:
+
+- Chips and ordinary buttons were 48dp tall; they now use the 32dp and 40dp
+  Material sizes inside a 48dp touch target.
+- The bottom action bar stopped above the navigation bar; its surface now
+  continues behind it and still sits above the keyboard.
+- At font scale 2.0 the income/spending/net-flow row and the items summary
+  row broke amounts mid-number; they now wrap whole values. Navigation labels
+  were clipped; they now shrink to fit. Segmented labels limit the font scale
+  to 1.2 instead of clipping.
+- A long field label wrapped inside narrow filter fields; labels stay on one
+  line.
+
+Differences from the Figma file and remaining gaps:
+
+- Categories store no icon, so the icon is chosen from the category name.
+- The currency sheet's first section lists currencies already in use, not
+  recently chosen ones. The full list still includes historical currencies.
+- New account is in the Accounts overflow menu; the design did not place it.
+- A day's total is omitted for the last loaded day while older pages exist,
+  because it could be partial. Trash is grouped by transaction date; no
+  trashed-on date is stored.
+- The "No group" section in Groups & order cannot be dragged or renamed.
+  Dragging moves a row one place at a time, without a drag animation.
+- The stale-edit dialog can be dismissed to keep the form readable; the design
+  offers only Go back.
+- Attachment, From receipt and backup/restore remain disabled placeholders.
+- In Reports, the Uncategorized row drills down to all expenses of the month,
+  because the ledger filter cannot select uncategorized rows only, and the
+  Other row opens the table instead of a filtered list.
+- Not checked: live TalkBack, a physical tablet or foldable, the release
+  build on a device, every screen in dark theme, and the Templates, Save as
+  template and Tags screens by screenshot. The connected Pixel 8 Pro was not
+  used.
+- Running balances read every newer posting of the listed accounts, so their
+  cost grows with list depth; the 50,000-record measurement remains 2.9 work.

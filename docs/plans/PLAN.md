@@ -1,6 +1,6 @@
 # Kochenite: Personal Finance Android App
 
-Status: Phase 1's synthetic proof is historically verified; its sample app and database code were retired from active source on 2026-09-26. Earlier Phase 2 milestones and the signed-entry update are verified. The transaction editor redesign passes host verification, 41 physical-device checks and visual acceptance (live TalkBack and physical wide-device coverage remain open). Milestones 2.7–2.9, including performance/release gates, remain pending. Off-machine signing backup is still required before real bookkeeping use.
+Status: Phase 1's synthetic proof is historically verified; its sample app and database code were retired from active source on 2026-09-26. Earlier Phase 2 milestones and the signed-entry update are verified. The full-app Material 3 redesign from Figma is implemented and passes host verification and 49 physical-device checks (live TalkBack and physical wide-device coverage remain open). Milestones 2.7–2.9, including performance/release gates, remain pending. Off-machine signing backup is still required before real bookkeeping use.
 
 ## Goal and Agreed Decisions
 
@@ -102,7 +102,8 @@ Bluecoins 13.1.79 was inspected through its visible UI using ADB. Observed refer
 
 - Phase 2 has four primary destinations: Overview, Transactions, Accounts, and Reports. Inbox is deferred to capture phases. Overview exposes budgets, bills, and goals; settings contains categories, templates, backups, and recognition configuration.
 - Persistent add action and a compact Expense/Income/Transfer editor. Ordinary input stays in the ViewModel until Save; rotation retains it while that ViewModel survives, Back confirms discard only for changed input, and process termination loses it. Only explicitly saved incomplete records persist under Incomplete.
-- Material 3 with neutral light/dark surfaces, restrained teal accents, distinct chart colors, system typography, aligned monetary columns, and compact readable lists.
+- Material 3 with neutral light/dark surfaces, restrained teal accents, distinct chart colors, system typography, aligned monetary columns, and compact readable lists. The [Figma redesign](https://www.figma.com/design/0nD5HHluRn8UPxUbjJrK0n) is the visual source for screens and components.
+- Redesign decisions (user review, September 30, 2026): amounts display currency symbols with locale grouping while input and storage stay exact; transaction rows show the account's running balance and a transfer shows one row per side; opening balances are presented as balance adjustments; an account's currency is picked from the amount control; the first account's currency becomes the dashboard currency at setup; changing the balance on Edit account posts the difference as one adjustment.
 - Use accessible icons, 48dp touch targets, text scaling, TalkBack semantics, edge-to-edge insets, keyboard-safe forms, and predictable back navigation. Do not rely on color alone.
 - Wider windows use navigation rails and list/detail layouts. Charts offer exact values and accessible textual/tabular alternatives.
 - Recognition review shows the receipt alongside extracted fields/items, surfaces uncertainty and mismatches, and makes account/category correction efficient.
@@ -183,7 +184,7 @@ results. Off-machine signing backup remains required before real use.
 
 ### Phase 2: Reliable Manual Bookkeeping
 
-Status: in progress. Earlier milestones 2.0–2.6 and the signed-entry update are verified. The authorized transaction editor redesign, its review fixes and visual acceptance are verified; 2.7 is next. See the [detailed milestones](phases/02-manual-bookkeeping.md),
+Status: in progress. Earlier milestones 2.0–2.6 and the signed-entry update are verified. The authorized transaction editor redesign, its review fixes and visual acceptance are verified. The full-app Material 3 redesign from Figma, authorized by the user before 2.7, is implemented and verified; 2.7 is next. See the [detailed milestones](phases/02-manual-bookkeeping.md),
 [financial examples](../../docs/financial-rules.md) and [worklog](../worklogs/02-manual-bookkeeping.md).
 
 - Deliver milestones 2.0–2.9 in order: decisions, kernel/storage, setup/accounts/categories, basic entry/editing/trash, transfers/incomplete/credits, receipt lines/splits, search/tags/templates/bulk categories, reports/rates, plain SQLite backup/restore, release validation.

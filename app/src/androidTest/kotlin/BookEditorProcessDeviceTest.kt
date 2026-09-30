@@ -5,7 +5,6 @@ import android.os.Process
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelProvider
@@ -37,7 +36,7 @@ class BookEditorProcessDeviceTest {
     @Test fun leaveUnsavedEditorInProcess() {
         val activity = launch()
         compose.onNodeWithTag("nav-1").performClick()
-        compose.onNodeWithText("Add").performClick()
+        compose.onNodeWithTag("add-transaction").performClick()
         compose.onNodeWithTag("field-Title").performTextReplacement("Synthetic unsaved process test")
         compose.onNodeWithTag("field-Amount").performTextReplacement("42.19")
         compose.runOnIdle {
